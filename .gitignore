@@ -1,0 +1,15 @@
+node_modules/
+tmp/
+
+.env
+
+session/
+sessions/
+auth_info/
+auth_info_baileys/
+
+creds.json
+bot-config.json
+tiktok-state.json
+
+*-player-script.js

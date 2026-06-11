@@ -1,0 +1,22 @@
+{
+  "name": "bot_wasa_abel",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@distube/yt-dlp": "^2.0.1",
+    "@distube/ytdl-core": "^4.16.12",
+    "@whiskeysockets/baileys": "^7.0.0-rc13",
+    "axios": "^1.17.0",
+    "pino": "^10.3.1",
+    "qrcode-terminal": "^0.12.0",
+    "yt-search": "^2.13.1"
+  }
+}
