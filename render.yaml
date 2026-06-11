@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: jabesht-bot
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    disk:
+      name: jabesht-bot-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /data
+      - key: AUTH_DIR
+        value: /data/auth
+      - key: TMP_DIR
+        value: /tmp/jabesht-bot
+      - key: YT_DLP_PATH
+        value: /usr/local/bin/yt-dlp
+      - key: FFMPEG_PATH
+        value: /usr/bin/ffmpeg
+      - key: TZ
+        value: America/Lima

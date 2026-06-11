@@ -11,46 +11,78 @@ const ytSearch = require("yt-search");
 const fs       = require("fs");
 const path     = require("path");
 const https    = require("https");
+const http     = require("http");
 const axios    = require("axios");
 const { spawn } = require("child_process");
+require("dotenv").config();
 
 const { startMenuText, botMenuText, menuImagePath, hasMenuImage } = require("./menu/menu");
 
-// Ejecuta yt-dlp usando spawn (evita problemas de comillas en Windows)
+const IS_WINDOWS = process.platform === "win32";
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+const AUTH_DIR = process.env.AUTH_DIR || path.join(DATA_DIR, "sesion");
+
+// ─── Carpeta temporal ─────────────────────────────────────────────────────────
+const TMP = process.env.TMP_DIR || path.join(DATA_DIR, "tmp");
+if (!fs.existsSync(TMP)) fs.mkdirSync(TMP, { recursive: true });
+
+// ─── Binarios multiplataforma ─────────────────────────────────────────────────
+function resolverBinario(nombre, nombreWindows) {
+    const envName = `${nombre.toUpperCase().replace(/-/g, "_")}_PATH`;
+    if (process.env[envName]) return process.env[envName];
+
+    const localWindows = path.join(__dirname, nombreWindows);
+    if (IS_WINDOWS && fs.existsSync(localWindows)) return localWindows;
+
+    const localLinux = path.join(__dirname, nombre);
+    if (!IS_WINDOWS && fs.existsSync(localLinux)) return localLinux;
+
+    return nombre;
+}
+
+const YTDLP = resolverBinario("yt-dlp", "yt-dlp.exe");
+const FFMPEG = resolverBinario("ffmpeg", "ffmpeg.exe");
+
+function tieneRutaLocalOBsoluta(binario) {
+    return path.isAbsolute(binario) || binario.includes("/") || binario.includes("\\");
+}
+
+// Ejecuta yt-dlp usando spawn sin depender de .exe de Windows.
 function runYtdlp(args, timeoutMs = 180_000) {
-    // Siempre inyectar ffmpeg-location si existe, y usar node como JS runtime
     const extraArgs = [];
-    if (fs.existsSync(FFMPEG)) {
-        extraArgs.push("--ffmpeg-location", path.dirname(FFMPEG));
+    if (tieneRutaLocalOBsoluta(FFMPEG)) {
+        extraArgs.push("--ffmpeg-location", fs.existsSync(FFMPEG) ? path.dirname(FFMPEG) : FFMPEG);
     }
     extraArgs.push("--js-runtimes", "nodejs");
     const finalArgs = [...extraArgs, ...args];
+
     return new Promise((resolve, reject) => {
-        const proc = spawn(YTDLP, finalArgs, { windowsHide: true });
+        const proc = spawn(YTDLP, finalArgs, {
+            windowsHide: true,
+            shell: false,
+        });
         let stdout = "";
         let stderr = "";
         proc.stdout.on("data", d => { stdout += d.toString(); });
         proc.stderr.on("data", d => { stderr += d.toString(); });
-        const timer = setTimeout(() => { proc.kill(); reject(new Error("Timeout yt-dlp")); }, timeoutMs);
+        const timer = setTimeout(() => {
+            proc.kill();
+            reject(new Error("Timeout yt-dlp"));
+        }, timeoutMs);
         proc.on("close", code => {
             clearTimeout(timer);
             if (code === 0) resolve(stdout);
-            else reject(new Error(stderr.slice(-500) || `yt-dlp salió con código ${code}`));
+            else reject(new Error(stderr.slice(-1000) || `yt-dlp salió con código ${code}`));
         });
-        proc.on("error", err => { clearTimeout(timer); reject(err); });
+        proc.on("error", err => {
+            clearTimeout(timer);
+            reject(err);
+        });
     });
 }
 
-// ─── Carpeta temporal ─────────────────────────────────────────────────────────
-const TMP = path.join(__dirname, "tmp");
-if (!fs.existsSync(TMP)) fs.mkdirSync(TMP);
-
-// ─── Rutas a ejecutables ──────────────────────────────────────────────────────
-const YTDLP  = path.join(__dirname, "yt-dlp.exe");
-const FFMPEG = path.join(__dirname, "ffmpeg.exe"); // copia ffmpeg.exe junto a index.js
-
 function ytdlpDisponible() {
-    return fs.existsSync(YTDLP);
+    return !tieneRutaLocalOBsoluta(YTDLP) || fs.existsSync(YTDLP);
 }
 
 // ─── Sesiones activas ─────────────────────────────────────────────────────────
@@ -61,8 +93,10 @@ let kickLiveAnterior = null;
 let tiktokMonitorTimer = null;
 
 // Configuracion simple para avisos de Kick.
-const CONFIG_FILE = path.join(__dirname, "bot-config.json");
-const TIKTOK_STATE_FILE = path.join(__dirname, "tiktok-state.json");
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+const CONFIG_FILE = path.join(DATA_DIR, "bot-config.json");
+const TIKTOK_STATE_FILE = path.join(DATA_DIR, "tiktok-state.json");
 const KICK_SLUG = "anflo1";
 const KICK_CHECK_MS = 60_000;
 const TIKTOK_CHECK_MS = 5 * 60_000;
@@ -114,27 +148,66 @@ function activarMarcaBot(sock) {
     };
 }
 
+function iniciarHealthServer() {
+    const port = process.env.PORT;
+    if (!port) return;
+
+    const server = http.createServer((req, res) => {
+        if (req.url === "/health" || req.url === "/") {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+                ok: true,
+                bot: BOT_NAME,
+                platform: process.platform,
+                uptime: process.uptime(),
+            }));
+            return;
+        }
+
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.end("Not found");
+    });
+
+    server.listen(Number(port), "0.0.0.0", () => {
+        console.log(`🌐 Health server escuchando en puerto ${port}`);
+    });
+}
+
+function configurarApagadoLimpio() {
+    const apagar = (signal) => {
+        console.log(`Recibido ${signal}. Cerrando monitores...`);
+        detenerMonitorKick();
+        detenerMonitorTiktok();
+        process.exit(0);
+    };
+
+    process.once("SIGTERM", () => apagar("SIGTERM"));
+    process.once("SIGINT", () => apagar("SIGINT"));
+}
+
 // ─── Bot ──────────────────────────────────────────────────────────────────────
 async function startBot() {
     console.log("🚀 INICIANDO BOT...");
 
+    console.log(`🖥️  Plataforma: ${process.platform}`);
+    console.log(`📁 DATA_DIR: ${DATA_DIR}`);
+    console.log(`🔐 AUTH_DIR: ${AUTH_DIR}`);
+    console.log(`▶ yt-dlp: ${YTDLP}`);
+    console.log(`▶ ffmpeg: ${FFMPEG}`);
+
     if (!ytdlpDisponible()) {
-        console.warn("⚠️  NO se encontró yt-dlp.exe en la carpeta del bot.");
-        console.warn("   Descárgalo de: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe");
-        console.warn("   y colócalo junto a index.js");
-    } else {
-        console.log("✅ yt-dlp.exe encontrado.");
-        // Auto-actualizar yt-dlp al iniciar (opcional, comenta si no quieres)
+        console.warn("⚠️  NO se encontró yt-dlp. En Linux instala yt-dlp o define YT_DLP_PATH.");
+    } else if (process.env.YTDLP_AUTO_UPDATE === "true") {
         try {
             await runYtdlp(["-U"]);
             console.log("✅ yt-dlp actualizado.");
-        } catch {
-            console.log("ℹ️  yt-dlp ya está en su última versión (o no pudo actualizarse).");
+        } catch (err) {
+            console.log("ℹ️  yt-dlp no pudo actualizarse:", err.message);
         }
     }
 
     const { version } = await fetchLatestBaileysVersion();
-    const { state, saveCreds } = await useMultiFileAuthState("auth");
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
     const sock = makeWASocket({
         version,
@@ -739,7 +812,7 @@ async function revisarTiktokYNotificar(sock) {
 
 async function obtenerUltimoVideoTiktok(username) {
     if (!ytdlpDisponible()) {
-        throw new Error("yt-dlp.exe no esta disponible");
+        throw new Error("yt-dlp no esta disponible");
     }
 
     const cleanUser = limpiarUsuarioTiktok(username);
@@ -837,4 +910,9 @@ function descargarImagen(url) {
 
 function esperar(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-startBot();
+configurarApagadoLimpio();
+iniciarHealthServer();
+startBot().catch(err => {
+    console.error("Error fatal iniciando bot:", err);
+    process.exit(1);
+});

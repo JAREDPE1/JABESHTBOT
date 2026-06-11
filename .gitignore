@@ -1,5 +1,9 @@
 node_modules/
 tmp/
+logs/
+data/
+auth/
+sesion/
 
 .env
 
@@ -13,3 +17,4 @@ bot-config.json
 tiktok-state.json
 
 *-player-script.js
+*.exe

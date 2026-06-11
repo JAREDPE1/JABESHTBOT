@@ -1,0 +1,11 @@
+node_modules
+tmp
+auth
+data
+.git
+.env
+*.exe
+*-player-script.js
+bot-config.json
+tiktok-state.json
+npm-debug.log
