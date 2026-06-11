@@ -170,15 +170,6 @@ Por defecto local:
 
 No borres esa carpeta si no quieres escanear QR otra vez.
 
-No subas al repositorio:
-
-- `sesion/`
-- `auth/`
-- `node_modules/`
-- `.env`
-- `bot-config.json`
-- `tiktok-state.json`
-- archivos `.exe`
 
 ## Mantenerlo Encendido En Un VPS
 
