@@ -44,8 +44,8 @@ pkg update -y
 pkg upgrade -y
 pkg install -y git nodejs ffmpeg python
 pip install -U yt-dlp
-git clone URL_DE_TU_REPOSITORIO
-cd NOMBRE_DEL_REPOSITORIO
+git clone https://github.com/JAREDPE1/JABESHTBOT.git
+cd JABESHTBOT
 npm install
 YT_DLP_PATH=yt-dlp FFMPEG_PATH=ffmpeg npm start
 ```
@@ -67,8 +67,8 @@ Si cierras Termux o Android mata el proceso, el bot se apaga. Para uso serio con
 5. Coloca `yt-dlp.exe` y `ffmpeg.exe` en la carpeta del bot, o define sus rutas.
 
 ```bat
-git clone URL_DE_TU_REPOSITORIO
-cd NOMBRE_DEL_REPOSITORIO
+git clone https://github.com/JAREDPE1/JABESHTBOT.git
+cd JABESHTBOT
 npm install
 npm start
 ```
@@ -104,8 +104,8 @@ logs\startup.log
 ## Instalacion Con Docker
 
 ```bash
-git clone URL_DE_TU_REPOSITORIO
-cd NOMBRE_DEL_REPOSITORIO
+git clone https://github.com/JAREDPE1/JABESHTBOT.git
+cd JABESHTBOT
 docker build -t jabesht-bot .
 docker run -it --name jabesht-bot -p 3000:3000 -e PORT=3000 -v jabesht-data:/data jabesht-bot
 ```
