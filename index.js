@@ -53,7 +53,7 @@ function runYtdlp(args, timeoutMs = 180_000) {
     if (tieneRutaLocalOBsoluta(FFMPEG)) {
         extraArgs.push("--ffmpeg-location", fs.existsSync(FFMPEG) ? path.dirname(FFMPEG) : FFMPEG);
     }
-    extraArgs.push("--js-runtimes", "nodejs");
+    extraArgs.push("--js-runtimes", "node");
     const finalArgs = [...extraArgs, ...args];
 
     return new Promise((resolve, reject) => {
@@ -251,10 +251,11 @@ async function startBot() {
         if (!msg.message || msg.key.fromMe) return;
 
         const jid  = msg.key.remoteJid;
-        const text = (
+        const rawText = (
             msg.message.conversation ||
             msg.message.extendedTextMessage?.text || ""
-        ).trim().toLowerCase();
+        ).trim();
+        const text = rawText.toLowerCase();
 
         if (!text) return;
         console.log(`📩 [${jid.split("@")[0]}]: ${text}`);
@@ -284,13 +285,8 @@ async function startBot() {
                     await descargarAudio(sock, jid, url, title, duracion);
                 } else if (text === "2" || text === "mp4" || text === "video") {
                     sesiones.delete(jid);
-                    if (duracion > 300) {
-                        await sock.sendMessage(jid, { text: "⚠️ Video >5 min, te envío *MP3* por límite de WhatsApp.\n\n⏳ Descargando..." });
-                        await descargarAudio(sock, jid, url, title, duracion);
-                    } else {
-                        await sock.sendMessage(jid, { text: "⏳ Descargando *MP4*..." });
-                        await descargarVideo(sock, jid, url, title);
-                    }
+                    await sock.sendMessage(jid, { text: "⏳ Descargando *MP4*..." });
+                    await descargarVideo(sock, jid, url, title);
                 } else {
                     sesiones.delete(jid);
                     await sock.sendMessage(jid, { text: "↩️ Cancelado." });
@@ -398,18 +394,18 @@ async function startBot() {
             return;
         }
 
-        if (text.startsWith("!yt ")) {
-            const url = text.slice(4).trim();
-            if (!url.includes("youtube.com") && !url.includes("youtu.be")) {
-                await sock.sendMessage(jid, { text: "❌ URL inválida." });
+        if (text.startsWith("!yt ") || text.startsWith("!video ") || text.startsWith("!fb ") || text.startsWith("!facebook ") || text.startsWith("!tiktok ") || text.startsWith("!tt ")) {
+            const url = extraerUrlComando(rawText);
+            if (!esUrlDescargable(url)) {
+                await sock.sendMessage(jid, { text: "❌ URL inválida. Usa un enlace de YouTube, TikTok o Facebook." });
                 return;
             }
             try {
                 const info = await obtenerInfoVideo(url);
                 await preguntarFormato(sock, jid, info);
             } catch (err) {
-                console.error("Error !yt:", err.message);
-                await sock.sendMessage(jid, { text: "❌ No pude obtener info de ese video. Puede ser privado o restringido." });
+                console.error("Error descarga por URL:", err.message);
+                await sock.sendMessage(jid, { text: "❌ No pude obtener info de ese video. Puede ser privado, restringido o requerir iniciar sesión." });
             }
             return;
         }
@@ -441,11 +437,34 @@ async function obtenerInfoVideo(url) {
     const stdout = await runYtdlp(["--dump-json", "--no-playlist", url]);
     const info = JSON.parse(stdout.trim().split("\n")[0]);
     return {
-        url:       `https://www.youtube.com/watch?v=${info.id}`,
-        title:     info.title,
-        duracion:  info.duration || 0,
+        url:       info.webpage_url || info.original_url || url,
+        title:     info.title || info.fulltitle || "Video",
+        duracion:  Number(info.duration) || 0,
         thumbnail: info.thumbnail || null,
     };
+}
+
+function extraerUrlComando(texto) {
+    return String(texto || "").trim().split(/\s+/).slice(1).join(" ").trim();
+}
+
+function esUrlDescargable(url) {
+    try {
+        const parsed = new URL(url);
+        if (!["http:", "https:"].includes(parsed.protocol)) return false;
+        const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+        return (
+            host === "youtu.be" ||
+            host.endsWith("youtube.com") ||
+            host.endsWith("tiktok.com") ||
+            host.endsWith("vm.tiktok.com") ||
+            host.endsWith("vt.tiktok.com") ||
+            host.endsWith("facebook.com") ||
+            host.endsWith("fb.watch")
+        );
+    } catch {
+        return false;
+    }
 }
 
 // ─── Buscar el mejor resultado ────────────────────────────────────────────────
@@ -514,7 +533,7 @@ async function mostrarLista(sock, jid, query) {
 async function preguntarFormato(sock, jid, { url, title, duracion, thumbnail }) {
     const min = Math.floor(duracion / 60);
     const seg = String(duracion % 60).padStart(2, "0");
-    const caption = `🎵 *${title}*\n⏱ ${min}:${seg}\n\n¿En qué formato?\n*1* — 🎵 MP3 (solo audio)\n*2* — 🎬 MP4 (video)${duracion > 300 ? "\n⚠️ _Videos >5 min solo MP3_" : ""}`;
+    const caption = `🎵 *${title}*\n⏱ ${min}:${seg}\n\n¿En qué formato?\n*1* — 🎵 MP3 (solo audio)\n*2* — 🎬 MP4 (video)`;
 
     try {
         const thumbBuffer = thumbnail ? await descargarImagen(thumbnail) : null;
@@ -587,40 +606,69 @@ async function descargarVideo(sock, jid, url, title) {
     const archivo = `${base}.mp4`;
     try {
         const args = [
-            "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]",
+            "-f", "bv*[height<=720]+ba/b[height<=720]/best[height<=720]/best",
             "--merge-output-format", "mp4",
+            "--remux-video", "mp4",
             "--no-playlist",
-            "-o", archivo,
+            "-o", `${base}.%(ext)s`,
             url
         ];
         console.log("▶ yt-dlp video:", args.join(" "));
         await runYtdlp(args, 180_000);
 
-        if (!fs.existsSync(archivo)) throw new Error("Archivo de video no generado");
+        const videoFile = buscarArchivoGenerado(base, ".mp4") || buscarArchivoGenerado(base);
+        if (!videoFile) throw new Error("Archivo de video no generado");
 
-        const sizeMB = fs.statSync(archivo).size / (1024 * 1024);
+        const sizeMB = fs.statSync(videoFile).size / (1024 * 1024);
         if (sizeMB > 60) {
             await sock.sendMessage(jid, { 
                 text: `⚠️ El video pesa ${sizeMB.toFixed(1)}MB (límite WhatsApp 64MB). Te envío el MP3.` 
             });
-            fs.unlinkSync(archivo);
+            limpiarArchivosGenerados(base);
             // Obtener duración real del archivo y enviar audio
             await descargarAudio(sock, jid, url, title, 0);
             return;
         }
 
         await sock.sendMessage(jid, {
-            video: fs.readFileSync(archivo),
+            video: fs.readFileSync(videoFile),
             mimetype: "video/mp4",
             fileName: `${title}.mp4`,
         });
         await sock.sendMessage(jid, { text: `✅ *${title}*\n📦 ${sizeMB.toFixed(1)}MB` });
+        limpiarArchivosGenerados(base);
 
     } catch (err) {
         console.error("Error descargarVideo:", err.message);
-        try { if (fs.existsSync(archivo)) fs.unlinkSync(archivo); } catch {}
+        limpiarArchivosGenerados(base);
         await sock.sendMessage(jid, { text: "❌ No pude descargar el video. Prueba con MP3." });
     }
+}
+
+function buscarArchivoGenerado(base, extensionPreferida = null) {
+    const prefijo = path.basename(base);
+    const archivos = fs.readdirSync(TMP)
+        .filter(f => f.startsWith(prefijo))
+        .map(f => path.join(TMP, f))
+        .filter(f => fs.existsSync(f) && fs.statSync(f).isFile());
+
+    if (extensionPreferida) {
+        const preferido = archivos.find(f => path.extname(f).toLowerCase() === extensionPreferida);
+        if (preferido) return preferido;
+    }
+
+    return archivos[0] || null;
+}
+
+function limpiarArchivosGenerados(base) {
+    const prefijo = path.basename(base);
+    try {
+        fs.readdirSync(TMP)
+            .filter(f => f.startsWith(prefijo))
+            .forEach(f => {
+                try { fs.unlinkSync(path.join(TMP, f)); } catch {}
+            });
+    } catch {}
 }
 
 // ─── Utilidades ───────────────────────────────────────────────────────────────

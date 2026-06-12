@@ -5,6 +5,7 @@ Bot de WhatsApp hecho con Node.js y Baileys.
 ## Funciones
 
 - Descargar audio/video desde YouTube.
+- Descargar videos por enlace desde TikTok y Facebook usando `yt-dlp`.
 - Avisar cuando `anflo1` prende stream en Kick.
 - Monitorear TikTok y avisar cuando una cuenta publica sube video nuevo.
 - Mostrar creditos con `.creador`.
@@ -141,6 +142,11 @@ npm start
 
 - `!menu`
 - `!yt <URL>`
+- `!video <URL>`
+- `!fb <URL>`
+- `!facebook <URL>`
+- `!tiktok <URL>`
+- `!tt <URL>`
 - `!play <nombre>`
 - `!lista <nombre>`
 - `!activarkick`
