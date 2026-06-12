@@ -2,7 +2,8 @@ const {
     default: makeWASocket, 
     useMultiFileAuthState, 
     DisconnectReason,
-    fetchLatestBaileysVersion
+    fetchLatestBaileysVersion,
+    downloadMediaMessage
 } = require("@whiskeysockets/baileys");
 
 const pino     = require("pino");
@@ -102,6 +103,7 @@ const KICK_CHECK_MS = 60_000;
 const TIKTOK_CHECK_MS = 5 * 60_000;
 const BOT_NAME = "JABESHT - BOT";
 const BOT_HEADER = `*${BOT_NAME}*`;
+const DEFAULT_DNI_API_URL = "https://api.verificape.com/v2/dni/{dni}";
 
 function cargarConfig() {
     try {
@@ -253,7 +255,9 @@ async function startBot() {
         const jid  = msg.key.remoteJid;
         const rawText = (
             msg.message.conversation ||
-            msg.message.extendedTextMessage?.text || ""
+            msg.message.extendedTextMessage?.text ||
+            msg.message.imageMessage?.caption ||
+            msg.message.videoMessage?.caption || ""
         ).trim();
         const text = rawText.toLowerCase();
 
@@ -317,6 +321,27 @@ async function startBot() {
             await sock.sendMessage(jid, {
                 text: `*Creditos del bot*\n\n*Creador:* Jared Crz\n*WhatsApp:* wa.me/51957211832\n\n*Colaborador:* Abraham LZ\n*WhatsApp:* wa.me/51915149840`
             });
+            return;
+        }
+
+        if (text === "!ping") {
+            await sock.sendMessage(jid, { text: crearMensajePing(msg) });
+            return;
+        }
+
+        if (text === "!estado") {
+            await sock.sendMessage(jid, { text: crearMensajeEstado() });
+            return;
+        }
+
+        if (/^!dni(\s|$)/.test(text)) {
+            const dni = rawText.replace(/^!dni/i, "").trim();
+            await consultarDniComando(sock, jid, dni);
+            return;
+        }
+
+        if (text === "!s" || text === "!sticker") {
+            await crearStickerComando(sock, jid, msg);
             return;
         }
 
@@ -433,6 +458,258 @@ async function startBot() {
 }
 
 // ─── Obtener info de video con yt-dlp ─────────────────────────────────────────
+function crearMensajePing(msg) {
+    const timestamp = Number(msg.messageTimestamp || 0) * 1000;
+    const latencia = timestamp > 0 ? Math.max(0, Date.now() - timestamp) : null;
+    return latencia === null
+        ? "🏓 Pong! Bot activo."
+        : `🏓 Pong!\n⚡ Latencia: ${latencia} ms`;
+}
+
+function crearMensajeEstado() {
+    const memoria = process.memoryUsage();
+    const uptime = formatearDuracion(process.uptime());
+    const rssMB = memoria.rss / (1024 * 1024);
+    const heapMB = memoria.heapUsed / (1024 * 1024);
+
+    return [
+        "*Estado del bot*",
+        "",
+        `🤖 Bot: ${BOT_NAME}`,
+        `⏱️ Encendido: ${uptime}`,
+        `💾 Memoria: ${rssMB.toFixed(1)}MB RSS / ${heapMB.toFixed(1)}MB heap`,
+        `🖥️ Sistema: ${process.platform}`,
+        `📁 DATA_DIR: ${DATA_DIR}`,
+        `▶️ yt-dlp: ${ytdlpDisponible() ? "OK" : "No encontrado"}`,
+        `🎬 ffmpeg: ${ffmpegDisponible() ? "OK" : "No encontrado"}`,
+        `🟢 Kick monitor: ${kickMonitorTimer ? "activo" : "apagado"}`,
+        `🎵 TikTok monitor: ${tiktokMonitorTimer ? "activo" : "apagado"}`,
+    ].join("\n");
+}
+
+function formatearDuracion(segundosTotales) {
+    const total = Math.floor(segundosTotales);
+    const dias = Math.floor(total / 86400);
+    const horas = Math.floor((total % 86400) / 3600);
+    const minutos = Math.floor((total % 3600) / 60);
+    const segundos = total % 60;
+    const partes = [];
+    if (dias) partes.push(`${dias}d`);
+    if (horas) partes.push(`${horas}h`);
+    if (minutos) partes.push(`${minutos}m`);
+    partes.push(`${segundos}s`);
+    return partes.join(" ");
+}
+
+function ffmpegDisponible() {
+    return !tieneRutaLocalOBsoluta(FFMPEG) || fs.existsSync(FFMPEG);
+}
+
+async function consultarDniComando(sock, jid, dni) {
+    if (!/^\d{8}$/.test(dni)) {
+        await sock.sendMessage(jid, { text: "Uso: *!dni 12345678*\nDebe tener 8 digitos." });
+        return;
+    }
+
+    const dniApiUrl = obtenerDniApiUrl();
+    if (!dniApiUrl || !process.env.DNI_API_TOKEN) {
+        await sock.sendMessage(jid, {
+            text: "La consulta DNI aun no esta configurada.\n\nDefine *DNI_API_TOKEN* en el .env con tu API key de VerificaPE."
+        });
+        return;
+    }
+
+    try {
+        const data = await consultarDniApi(dni, dniApiUrl);
+        await sock.sendMessage(jid, { text: formatearRespuestaDni(dni, data) });
+    } catch (err) {
+        const estado = err.response?.status;
+        const detalle = err.response?.data?.message || err.response?.data?.error || err.message;
+        console.error("Error !dni:", estado || "", detalle);
+        await sock.sendMessage(jid, { text: crearMensajeErrorDni(estado) });
+    }
+}
+
+function obtenerDniApiUrl() {
+    return (process.env.DNI_API_URL || DEFAULT_DNI_API_URL).trim();
+}
+
+async function consultarDniApi(dni, dniApiUrl = obtenerDniApiUrl()) {
+    const apiUrl = dniApiUrl.includes("{dni}")
+        ? dniApiUrl.replaceAll("{dni}", encodeURIComponent(dni))
+        : `${dniApiUrl.replace(/\/$/, "")}/${encodeURIComponent(dni)}`;
+
+    const headers = {
+        "Accept": "application/json",
+        "User-Agent": "JABESHT-BOT/1.0"
+    };
+    if (process.env.DNI_API_TOKEN) headers.Authorization = `Bearer ${process.env.DNI_API_TOKEN}`;
+
+    const { data } = await axios.get(apiUrl, { timeout: 12_000, headers });
+    return data;
+}
+
+function crearMensajeErrorDni(estado) {
+    if (estado === 401 || estado === 403) return "No pude consultar DNI: la API key fue rechazada. Revisa *DNI_API_TOKEN*.";
+    if (estado === 404) return "No pude consultar DNI: la ruta de la API no existe. Revisa *DNI_API_URL*.";
+    if (estado === 429) return "No pude consultar DNI: se agotaron o limitaron las consultas de la API.";
+    return "No pude consultar ese DNI ahora. Intenta mas tarde.";
+}
+
+function formatearRespuestaDni(dni, data) {
+    const payload = data?.data || data?.result || data?.persona || data;
+    const nombres = extraerCampo(payload, ["nombres", "nombre", "names", "prenombres"]);
+    const apellidoPaterno = extraerCampo(payload, ["apellidoPaterno", "apellido_paterno", "paternalSurname", "apepat", "paterno"]);
+    const apellidoMaterno = extraerCampo(payload, ["apellidoMaterno", "apellido_materno", "maternalSurname", "apemat", "materno"]);
+    const nombreCompleto = extraerCampo(payload, ["nombreCompleto", "nombre_completo", "fullName", "fullname"]);
+    const fechaNacimiento = extraerCampo(payload, ["fechaNacimiento", "fecha_nacimiento", "birthDate"]);
+    const genero = extraerCampo(payload, ["genero", "sexo", "gender"]);
+    const fuente = extraerCampo(payload, ["fuente", "source"]);
+
+    const lineas = [
+        "*Consulta DNI*",
+        "",
+        `🪪 DNI: ${dni}`,
+    ];
+
+    if (nombreCompleto) lineas.push(`👤 Nombre Completo: ${nombreCompleto}`);
+    
+    if (nombres) lineas.push(`👤 Nombre: ${nombres}`);
+
+    if (apellidoPaterno) lineas.push(`📌 Apellido paterno: ${apellidoPaterno}`);
+
+    if (apellidoMaterno) lineas.push(`📌 Apellido materno: ${apellidoMaterno}`);
+
+    if (fechaNacimiento) lineas.push(`Nacimiento: ${fechaNacimiento}`);
+
+    if (genero) lineas.push(`Genero: ${genero}`);
+
+    if (fuente) lineas.push(`JABESHT BOT: ${fuente}`);
+
+    if (lineas.length === 3) lineas.push("La API respondio, pero no encontre campos de nombre reconocibles.");
+    return lineas.join("\n");
+}
+
+function extraerCampo(obj, nombres) {
+    if (!obj || typeof obj !== "object") return null;
+    for (const nombre of nombres) {
+        const valor = obj[nombre];
+        if (valor !== undefined && valor !== null && String(valor).trim()) return String(valor).trim();
+    }
+    return null;
+}
+
+async function crearStickerComando(sock, jid, msg) {
+    if (!ffmpegDisponible()) {
+        await sock.sendMessage(jid, { text: "No encontre ffmpeg. Configura *FFMPEG_PATH* para crear stickers." });
+        return;
+    }
+
+    const mediaMsg = obtenerMensajeMedia(msg);
+    if (!mediaMsg) {
+        await sock.sendMessage(jid, { text: "Responde a una imagen/video con *!s* o envia una imagen/video con caption *!s*." });
+        return;
+    }
+
+    const tipo = mediaMsg.message?.imageMessage ? "image" : "video";
+    const mimetype = mediaMsg.message?.imageMessage?.mimetype || mediaMsg.message?.videoMessage?.mimetype || "";
+    const extension = mimetype.includes("png") ? ".png" : mimetype.includes("webp") ? ".webp" : tipo === "video" ? ".mp4" : ".jpg";
+    const base = path.join(TMP, `sticker_${Date.now()}`);
+    const entrada = `${base}${extension}`;
+    const salida = `${base}.webp`;
+
+    try {
+        const buffer = await downloadMediaMessage(
+            mediaMsg,
+            "buffer",
+            {},
+            {
+                logger: pino({ level: "silent" }),
+                reuploadRequest: sock.updateMediaMessage,
+            }
+        );
+
+        fs.writeFileSync(entrada, buffer);
+        await convertirASticker(entrada, salida, tipo);
+
+        await sock.sendMessage(jid, {
+            sticker: fs.readFileSync(salida),
+        });
+    } catch (err) {
+        console.error("Error !s:", err.message);
+        await sock.sendMessage(jid, { text: "No pude crear el sticker. Prueba con otra imagen o un video corto." });
+    } finally {
+        try { if (fs.existsSync(entrada)) fs.unlinkSync(entrada); } catch {}
+        try { if (fs.existsSync(salida)) fs.unlinkSync(salida); } catch {}
+    }
+}
+
+function obtenerMensajeMedia(msg) {
+    const directo = normalizarMensajeMedia(msg.message);
+    if (directo) return { key: msg.key, message: directo };
+
+    const contextInfo = msg.message?.extendedTextMessage?.contextInfo ||
+        msg.message?.imageMessage?.contextInfo ||
+        msg.message?.videoMessage?.contextInfo;
+    const quoted = normalizarMensajeMedia(contextInfo?.quotedMessage);
+    if (!quoted) return null;
+
+    return {
+        key: {
+            remoteJid: msg.key.remoteJid,
+            id: contextInfo.stanzaId,
+            participant: contextInfo.participant,
+        },
+        message: quoted,
+    };
+}
+
+function normalizarMensajeMedia(message) {
+    if (!message) return null;
+    const contenido = message.ephemeralMessage?.message ||
+        message.viewOnceMessage?.message ||
+        message.viewOnceMessageV2?.message ||
+        message.documentWithCaptionMessage?.message ||
+        message;
+
+    if (contenido.imageMessage || contenido.videoMessage) return contenido;
+    return null;
+}
+
+function convertirASticker(entrada, salida, tipo) {
+    const filtroImagen = "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000";
+    const filtroVideo = `fps=15,${filtroImagen}`;
+    const args = tipo === "video"
+        ? ["-y", "-i", entrada, "-t", "6", "-vf", filtroVideo, "-vcodec", "libwebp", "-lossless", "0", "-q:v", "65", "-preset", "default", "-loop", "0", "-an", "-vsync", "0", salida]
+        : ["-y", "-i", entrada, "-vf", filtroImagen, "-vcodec", "libwebp", "-lossless", "0", "-q:v", "80", "-preset", "default", "-loop", "0", "-an", "-vsync", "0", salida];
+
+    return runProceso(FFMPEG, args, 60_000);
+}
+
+function runProceso(comando, args, timeoutMs = 60_000) {
+    return new Promise((resolve, reject) => {
+        const proc = spawn(comando, args, {
+            windowsHide: true,
+            shell: false,
+        });
+        let stderr = "";
+        proc.stderr.on("data", d => { stderr += d.toString(); });
+        const timer = setTimeout(() => {
+            proc.kill();
+            reject(new Error("Timeout proceso"));
+        }, timeoutMs);
+        proc.on("close", code => {
+            clearTimeout(timer);
+            if (code === 0) resolve();
+            else reject(new Error(stderr.slice(-1000) || `Proceso salio con codigo ${code}`));
+        });
+        proc.on("error", err => {
+            clearTimeout(timer);
+            reject(err);
+        });
+    });
+}
+
 async function obtenerInfoVideo(url) {
     const stdout = await runYtdlp(["--dump-json", "--no-playlist", url]);
     const info = JSON.parse(stdout.trim().split("\n")[0]);

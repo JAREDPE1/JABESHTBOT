@@ -6,6 +6,9 @@ Bot de WhatsApp hecho con Node.js y Baileys.
 
 - Descargar audio/video desde YouTube.
 - Descargar videos por enlace desde TikTok y Facebook usando `yt-dlp`.
+- Crear stickers con imagenes o videos cortos.
+- Ver ping y estado del bot.
+- Consultar DNI usando una API autorizada configurada por entorno.
 - Avisar cuando `anflo1` prende stream en Kick.
 - Monitorear TikTok y avisar cuando una cuenta publica sube video nuevo.
 - Mostrar creditos con `.creador`.
@@ -121,6 +124,8 @@ Opcionales:
 - `YT_DLP_PATH`: ruta/comando de yt-dlp.
 - `FFMPEG_PATH`: ruta/comando de ffmpeg.
 - `PORT`: puerto para `/health` en servidores tipo Render.
+- `DNI_API_URL`: URL de una API autorizada para consultar DNI. Por defecto se usa `https://api.verificape.com/v2/dni/{dni}`.
+- `DNI_API_TOKEN`: API key de VerificaPE para usar `!dni`.
 
 Puedes copiar `.env.example` a `.env` y editarlo:
 
@@ -149,6 +154,10 @@ npm start
 - `!tt <URL>`
 - `!play <nombre>`
 - `!lista <nombre>`
+- `!s`
+- `!dni <numero>`
+- `!ping`
+- `!estado`
 - `!activarkick`
 - `!verkick`
 - `!activartiktok @usuario`

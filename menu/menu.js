@@ -11,6 +11,11 @@ const startMenuText = `Hola, soy *[JABESHT - BOT]*
 - *!tiktok <URL>* -> descargar video de TikTok
 - *!play <nombre>* -> mejor resultado automatico
 - *!lista <nombre>* -> elegir entre 8 opciones
+--UTILIDADES--
+- *!s* -> crear sticker respondiendo a imagen/video
+- *!dni <numero>* -> consultar DNI 
+- *!ping* -> probar velocidad del bot
+- *!estado* -> ver estado del bot
 - *!activarkick* -> guardar este grupo para avisos de Kick
 - *!verkick* -> revisar si anflo1 esta en vivo
 - *!activartiktok @usuario* -> guardar este grupo para avisos de TikTok
@@ -29,6 +34,11 @@ const botMenuText = `*[JABESHT - BOT]*
 - *!tiktok <URL>* -> descarga video de TikTok
 - *!play <nombre>* -> busca y descarga el mejor resultado
 - *!lista <nombre>* -> muestra 8 opciones para elegir
+--UTILIDADES--
+- *!s* -> crear sticker respondiendo a imagen/video
+- *!dni <numero>* -> consultar DNI 
+- *!ping* -> probar velocidad del bot
+- *!estado* -> ver estado del bot
 - *!activarkick* -> guardar este grupo para avisos de Kick
 - *!verkick* -> revisar si anflo1 esta en vivo
 - *!activartiktok @usuario* -> guardar este grupo para avisos de TikTok
