@@ -28,6 +28,9 @@ const {
     crearDocumentoWord,
     documentoATexto,
 } = require("./lib/docx-service");
+const {
+    crearDocumentoPptx,
+} = require("./lib/pptx-service");
 
 const IS_WINDOWS = process.platform === "win32";
 const DATA_DIR = process.env.DATA_DIR || __dirname;
@@ -340,10 +343,10 @@ async function startBot() {
             return;
         }
 
-        const tipoDocumentoIa = detectarComandoDocumentoIa(text);
-        if (tipoDocumentoIa) {
-            const tema = rawText.replace(new RegExp(`^!${tipoDocumentoIa}`, "i"), "").trim();
-            await generarDocumentoIaComando(sock, jid, tipoDocumentoIa, tema);
+        const comandoDocumentoIa = detectarComandoDocumentoIa(text);
+        if (comandoDocumentoIa) {
+            const tema = rawText.replace(new RegExp(`^!${comandoDocumentoIa.tipo}(?:-(?:pptx?)|\\s+pptx?)?`, "i"), "").trim();
+            await generarDocumentoIaComando(sock, jid, comandoDocumentoIa.tipo, tema, comandoDocumentoIa.formato);
             return;
         }
 
@@ -482,8 +485,12 @@ async function startBot() {
 
 // ─── Obtener info de video con yt-dlp ─────────────────────────────────────────
 function detectarComandoDocumentoIa(text) {
-    const match = text.match(/^!(monografia|ensayo|resumen|exposicion|introduccion|conclusion|objetivos)(\s|$)/);
-    return match ? match[1] : null;
+    const match = text.match(/^!(monografia|ensayo|resumen|exposicion|introduccion|conclusion|objetivos)(?:-(pptx?)|\s+(pptx?))?(?=\s|$)/i);
+    if (!match) return null;
+    return {
+        tipo: match[1].toLowerCase(),
+        formato: match[2] || match[3] ? "pptx" : "docx",
+    };
 }
 
 async function responderIaComando(sock, jid, pregunta) {
@@ -508,12 +515,13 @@ async function responderIaComando(sock, jid, pregunta) {
     }
 }
 
-async function generarDocumentoIaComando(sock, jid, tipo, tema) {
+async function generarDocumentoIaComando(sock, jid, tipo, tema, formato = "docx") {
     const config = getDocumentType(tipo);
     if (!config) return;
 
     if (!tema) {
-        await sock.sendMessage(jid, { text: `Uso: *!${tipo} tema*\nEjemplo: *!${tipo} La inteligencia artificial*` });
+        const comandoEjemplo = formato === "pptx" ? `!${tipo}-pptx` : `!${tipo}`;
+        await sock.sendMessage(jid, { text: `Uso: *${comandoEjemplo} tema*\nEjemplo: *${comandoEjemplo} La inteligencia artificial*` });
         return;
     }
 
@@ -531,8 +539,12 @@ async function generarDocumentoIaComando(sock, jid, tipo, tema) {
         const texto = documentoATexto(documento);
         await enviarTextoLargo(sock, jid, texto);
 
-        await sock.sendMessage(jid, { text: "Creando documento Word..." });
-        archivo = await crearDocumentoWord(documento, TMP);
+        await sock.sendMessage(jid, { text: `Creando documento ${formato === "pptx" ? "PowerPoint" : "Word"}...` });
+        if (formato === "pptx") {
+            archivo = await crearDocumentoPptx(documento, TMP);
+        } else {
+            archivo = await crearDocumentoWord(documento, TMP);
+        }
 
         await sock.sendMessage(jid, {
             document: fs.readFileSync(archivo.filePath),

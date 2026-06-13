@@ -14,12 +14,19 @@ const startMenuText = `Hola, soy *[JABESHT - BOT]*
 --UTILIDADES--
 - *!ia <pregunta>* -> responder con inteligencia artificial
 - *!monografia <tema>* -> generar monografia y Word
+- *!monografia-pptx <tema>* -> generar monografia y PowerPoint
 - *!ensayo <tema>* -> generar ensayo y Word
+- *!ensayo-pptx <tema>* -> generar ensayo y PowerPoint
 - *!resumen <tema>* -> generar resumen y Word
+- *!resumen-pptx <tema>* -> generar resumen y PowerPoint
 - *!exposicion <tema>* -> generar exposicion y Word
+- *!exposicion-pptx <tema>* -> generar exposicion y PowerPoint
 - *!introduccion <tema>* -> generar introduccion y Word
+- *!introduccion-pptx <tema>* -> generar introduccion y PowerPoint
 - *!conclusion <tema>* -> generar conclusion y Word
+- *!conclusion-pptx <tema>* -> generar conclusion y PowerPoint
 - *!objetivos <tema>* -> generar objetivos y Word
+- *!objetivos-pptx <tema>* -> generar objetivos y PowerPoint
 - *!s* -> crear sticker respondiendo a imagen/video
 - *!dni <numero>* -> consultar DNI 
 - *!ping* -> probar velocidad del bot
@@ -45,12 +52,19 @@ const botMenuText = `*[JABESHT - BOT]*
 --UTILIDADES--
 - *!ia <pregunta>* -> responder con inteligencia artificial
 - *!monografia <tema>* -> generar monografia y Word
+- *!monografia-pptx <tema>* -> generar monografia y PowerPoint
 - *!ensayo <tema>* -> generar ensayo y Word
+- *!ensayo-pptx <tema>* -> generar ensayo y PowerPoint
 - *!resumen <tema>* -> generar resumen y Word
+- *!resumen-pptx <tema>* -> generar resumen y PowerPoint
 - *!exposicion <tema>* -> generar exposicion y Word
+- *!exposicion-pptx <tema>* -> generar exposicion y PowerPoint
 - *!introduccion <tema>* -> generar introduccion y Word
+- *!introduccion-pptx <tema>* -> generar introduccion y PowerPoint
 - *!conclusion <tema>* -> generar conclusion y Word
+- *!conclusion-pptx <tema>* -> generar conclusion y PowerPoint
 - *!objetivos <tema>* -> generar objetivos y Word
+- *!objetivos-pptx <tema>* -> generar objetivos y PowerPoint
 - *!s* -> crear sticker respondiendo a imagen/video
 - *!dni <numero>* -> consultar DNI 
 - *!ping* -> probar velocidad del bot

@@ -166,12 +166,19 @@ npm start
 - `!lista <nombre>`
 - `!ia <pregunta>`
 - `!monografia <tema>`
+- `!monografia-pptx <tema>`
 - `!ensayo <tema>`
+- `!ensayo-pptx <tema>`
 - `!resumen <tema>`
+- `!resumen-pptx <tema>`
 - `!exposicion <tema>`
+- `!exposicion-pptx <tema>`
 - `!introduccion <tema>`
+- `!introduccion-pptx <tema>`
 - `!conclusion <tema>`
+- `!conclusion-pptx <tema>`
 - `!objetivos <tema>`
+- `!objetivos-pptx <tema>`
 - `!s`
 - `!dni <numero>`
 - `!ping`
