@@ -18,6 +18,16 @@ const { spawn } = require("child_process");
 require("dotenv").config();
 
 const { startMenuText, botMenuText, menuImagePath, hasMenuImage } = require("./menu/menu");
+const {
+    getDocumentType,
+    hasAiConfig,
+    responderPreguntaIa,
+    generarDocumentoAcademico,
+} = require("./lib/ai-service");
+const {
+    crearDocumentoWord,
+    documentoATexto,
+} = require("./lib/docx-service");
 
 const IS_WINDOWS = process.platform === "win32";
 const DATA_DIR = process.env.DATA_DIR || __dirname;
@@ -324,6 +334,19 @@ async function startBot() {
             return;
         }
 
+        if (/^!ia(\s|$)/.test(text)) {
+            const pregunta = rawText.replace(/^!ia/i, "").trim();
+            await responderIaComando(sock, jid, pregunta);
+            return;
+        }
+
+        const tipoDocumentoIa = detectarComandoDocumentoIa(text);
+        if (tipoDocumentoIa) {
+            const tema = rawText.replace(new RegExp(`^!${tipoDocumentoIa}`, "i"), "").trim();
+            await generarDocumentoIaComando(sock, jid, tipoDocumentoIa, tema);
+            return;
+        }
+
         if (text === "!ping") {
             await sock.sendMessage(jid, { text: crearMensajePing(msg) });
             return;
@@ -458,6 +481,131 @@ async function startBot() {
 }
 
 // ─── Obtener info de video con yt-dlp ─────────────────────────────────────────
+function detectarComandoDocumentoIa(text) {
+    const match = text.match(/^!(monografia|ensayo|resumen|exposicion|introduccion|conclusion|objetivos)(\s|$)/);
+    return match ? match[1] : null;
+}
+
+async function responderIaComando(sock, jid, pregunta) {
+    if (!pregunta) {
+        await sock.sendMessage(jid, { text: "Uso: *!ia pregunta*\nEjemplo: *!ia Que es la inteligencia artificial?*" });
+        return;
+    }
+
+    if (!hasAiConfig()) {
+        await sock.sendMessage(jid, { text: "La IA aun no esta configurada. Define *GEMINI_API_KEY* u *OPENAI_API_KEY* en el archivo .env." });
+        return;
+    }
+
+    try {
+        console.log("IA: respondiendo pregunta");
+        await sock.sendMessage(jid, { text: "Pensando respuesta con IA..." });
+        const respuesta = await responderPreguntaIa(pregunta);
+        await enviarTextoLargo(sock, jid, respuesta);
+    } catch (err) {
+        console.error("Error !ia:", obtenerDetalleErrorIa(err));
+        await sock.sendMessage(jid, { text: crearMensajeErrorIa(err) });
+    }
+}
+
+async function generarDocumentoIaComando(sock, jid, tipo, tema) {
+    const config = getDocumentType(tipo);
+    if (!config) return;
+
+    if (!tema) {
+        await sock.sendMessage(jid, { text: `Uso: *!${tipo} tema*\nEjemplo: *!${tipo} La inteligencia artificial*` });
+        return;
+    }
+
+    if (!hasAiConfig()) {
+        await sock.sendMessage(jid, { text: "La IA aun no esta configurada. Define *GEMINI_API_KEY* u *OPENAI_API_KEY* en el archivo .env." });
+        return;
+    }
+
+    let archivo = null;
+    try {
+        console.log(`IA: generando ${tipo} sobre ${tema}`);
+        await sock.sendMessage(jid, { text: `Generando ${config.label}...\nEsto puede tardar unos segundos...` });
+
+        const documento = await generarDocumentoAcademico(tipo, tema);
+        const texto = documentoATexto(documento);
+        await enviarTextoLargo(sock, jid, texto);
+
+        await sock.sendMessage(jid, { text: "Creando documento Word..." });
+        archivo = await crearDocumentoWord(documento, TMP);
+
+        await sock.sendMessage(jid, {
+            document: fs.readFileSync(archivo.filePath),
+            mimetype: archivo.mimetype,
+            fileName: archivo.fileName,
+        });
+        console.log(`IA: documento enviado ${archivo.fileName}`);
+    } catch (err) {
+        console.error(`Error !${tipo}:`, obtenerDetalleErrorIa(err));
+        await sock.sendMessage(jid, { text: crearMensajeErrorIa(err) });
+    } finally {
+        if (archivo?.filePath) {
+            try { if (fs.existsSync(archivo.filePath)) fs.unlinkSync(archivo.filePath); } catch {}
+        }
+    }
+}
+
+async function enviarTextoLargo(sock, jid, texto, maxLength = 3500) {
+    const partes = dividirTextoWhatsApp(texto, maxLength);
+    for (const parte of partes) {
+        await sock.sendMessage(jid, { text: parte });
+    }
+}
+
+function dividirTextoWhatsApp(texto, maxLength = 3500) {
+    const limpio = String(texto || "").trim();
+    if (!limpio) return ["Sin contenido generado."];
+
+    const partes = [];
+    let actual = "";
+    for (const bloque of limpio.split(/\n{2,}/)) {
+        const candidato = actual ? `${actual}\n\n${bloque}` : bloque;
+        if (candidato.length <= maxLength) {
+            actual = candidato;
+            continue;
+        }
+
+        if (actual) partes.push(actual);
+        if (bloque.length <= maxLength) {
+            actual = bloque;
+            continue;
+        }
+
+        for (let i = 0; i < bloque.length; i += maxLength) {
+            partes.push(bloque.slice(i, i + maxLength));
+        }
+        actual = "";
+    }
+    if (actual) partes.push(actual);
+    return partes;
+}
+
+function crearMensajeErrorIa(err) {
+    if (err.message === "OPENAI_API_KEY_MISSING") return "La IA aun no esta configurada. Define *OPENAI_API_KEY* en el archivo .env.";
+    if (err.message === "GEMINI_API_KEY_MISSING") return "La IA aun no esta configurada. Define *GEMINI_API_KEY* en el archivo .env.";
+    if (err.message === "IA_EMPTY_INPUT") return "Escribe un tema o pregunta despues del comando.";
+    if (err.message === "OPENAI_INVALID_JSON") return "La IA genero una respuesta con formato invalido. Intenta de nuevo con un tema mas especifico.";
+    if (err.message === "GEMINI_EMPTY_RESPONSE") return "Gemini no devolvio texto. Intenta otra vez con un tema mas especifico.";
+    if (err.code === "ECONNABORTED") return "La IA tardo demasiado en responder. Intenta otra vez en unos minutos.";
+
+    const status = err.response?.status;
+    if (status === 400) return "La API de IA rechazo la solicitud. Revisa el modelo configurado.";
+    if (status === 401 || status === 403) return "La API de IA rechazo la key. Revisa la clave en el .env.";
+    if (status === 429) return "La API de IA limito las solicitudes o no hay cuota disponible.";
+    if (status >= 500) return "La API de IA esta fallando temporalmente. Intenta mas tarde.";
+
+    return "No pude generar la respuesta con IA ahora. Revisa la configuracion o intenta mas tarde.";
+}
+
+function obtenerDetalleErrorIa(err) {
+    return err.response?.data?.error?.message || err.response?.data?.message || err.message;
+}
+
 function crearMensajePing(msg) {
     const timestamp = Number(msg.messageTimestamp || 0) * 1000;
     const latencia = timestamp > 0 ? Math.max(0, Date.now() - timestamp) : null;
@@ -553,7 +701,7 @@ function crearMensajeErrorDni(estado) {
     if (estado === 401 || estado === 403) return "No pude consultar DNI: la API key fue rechazada. Revisa *DNI_API_TOKEN*.";
     if (estado === 404) return "No pude consultar DNI: la ruta de la API no existe. Revisa *DNI_API_URL*.";
     if (estado === 429) return "No pude consultar DNI: se agotaron o limitaron las consultas de la API.";
-    return "No pude consultar ese DNI ahora. Intenta mas tarde.";
+    return "No pude consultar ese DNI ahora. Puede que el DNI puesto no exista.";
 }
 
 function formatearRespuestaDni(dni, data) {

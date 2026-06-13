@@ -9,6 +9,7 @@ Bot de WhatsApp hecho con Node.js y Baileys.
 - Crear stickers con imagenes o videos cortos.
 - Ver ping y estado del bot.
 - Consultar DNI usando una API autorizada configurada por entorno.
+- Responder preguntas con IA y generar trabajos academicos en texto y Word.
 - Avisar cuando `anflo1` prende stream en Kick.
 - Monitorear TikTok y avisar cuando una cuenta publica sube video nuevo.
 - Mostrar creditos con `.creador`.
@@ -126,6 +127,15 @@ Opcionales:
 - `PORT`: puerto para `/health` en servidores tipo Render.
 - `DNI_API_URL`: URL de una API autorizada para consultar DNI. Por defecto se usa `https://api.verificape.com/v2/dni/{dni}`.
 - `DNI_API_TOKEN`: API key de VerificaPE para usar `!dni`.
+- `AI_PROVIDER`: proveedor para comandos de IA. Usa `gemini` u `openai`.
+- `GEMINI_API_KEY`: API key de Gemini para usar IA con Google AI Studio.
+- `GEMINI_MODEL`: modelo de Gemini. Por defecto `gemini-3.1-flash-lite`.
+- `GEMINI_TIMEOUT_MS`: tiempo maximo de espera para Gemini.
+- `OPENAI_API_KEY`: API key de OpenAI si usas `AI_PROVIDER=openai`.
+- `OPENAI_MODEL`: modelo de OpenAI. Por defecto `gpt-4.1-mini`.
+- `OPENAI_TIMEOUT_MS`: tiempo maximo de espera para OpenAI.
+- `IA_MAX_TOKENS`: limite de salida para `!ia`.
+- `DOC_MAX_TOKENS`: limite de salida para documentos academicos.
 
 Puedes copiar `.env.example` a `.env` y editarlo:
 
@@ -154,6 +164,14 @@ npm start
 - `!tt <URL>`
 - `!play <nombre>`
 - `!lista <nombre>`
+- `!ia <pregunta>`
+- `!monografia <tema>`
+- `!ensayo <tema>`
+- `!resumen <tema>`
+- `!exposicion <tema>`
+- `!introduccion <tema>`
+- `!conclusion <tema>`
+- `!objetivos <tema>`
 - `!s`
 - `!dni <numero>`
 - `!ping`
