@@ -461,15 +461,23 @@ async function startBot() {
                 }
             } catch (err) {
                 console.error("Error descarga por URL:", err.message);
+                const isTiktok = url.includes("tiktok.com") || url.includes("vm.tiktok.com") || url.includes("vt.tiktok.com");
+                const errorMsg = err.message.toLowerCase();
                 
-                // Manejo especial para fotos de TikTok
-                if (err.message === "TIKTOK_PHOTO_ONLY") {
+                // Detectar si es foto de TikTok por error de yt-dlp
+                const esFotoIndividual = (
+                    err.message === "TIKTOK_PHOTO_ONLY" ||
+                    errorMsg.includes("unsupported url") ||
+                    errorMsg.includes("photo")
+                ) && isTiktok;
+                
+                if (esFotoIndividual) {
                     await sock.sendMessage(jid, { text: "📸 Esta es una foto individual de TikTok.\n\n💡 Solo puedo descargar videos y carruseles de TikTok.\n\nPrueba compartiendo un video o un carrusel (deslizable) de TikTok." });
                     return;
                 }
                 
-                const esCarruselError = err.message.includes("playlist") || err.message.includes("image");
-                if (esCarruselError) {
+                const esCarruselError = errorMsg.includes("playlist") || errorMsg.includes("image");
+                if (esCarruselError && isTiktok) {
                     // Intentar como carrusel de imágenes
                     try {
                         const url2 = extraerUrlComando(rawText);
