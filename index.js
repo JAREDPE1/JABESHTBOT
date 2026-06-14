@@ -453,32 +453,23 @@ async function startBot() {
             }
             try {
                 const info = await obtenerInfoVideo(url);
-                // Si es carrusel de TikTok, descargar imágenes directamente
-                if (info.esCarrusel && info.isTiktok) {
-                    await descargarCarruselImagenes(sock, jid, url, info.title);
+                if (info.isTiktok && (info.esFoto || info.esCarrusel)) {
+                    await descargarImagenesTiktok(sock, jid, url, info.title, info.imagenes);
                 } else {
                     await preguntarFormato(sock, jid, info);
                 }
             } catch (err) {
                 console.error("Error descarga por URL:", err.message);
-                
-                // Detectar si es foto de TikTok (error específico de obtenerInfoVideo)
-                if (err.message === "TIKTOK_PHOTO_ONLY") {
-                    await sock.sendMessage(jid, { text: "📸 Esta es una foto individual de TikTok.\n\n💡 Solo puedo descargar videos y carruseles de TikTok.\n\nPrueba compartiendo un video o un carrusel (deslizable) de TikTok." });
-                    return;
-                }
-                
-                const isTiktok = url.includes("tiktok.com") || url.includes("vm.tiktok.com") || url.includes("vt.tiktok.com");
+
+                const isTiktok = esUrlTiktok(url);
                 const errorMsg = String(err.message || "").toLowerCase();
-                
-                const esCarruselError = errorMsg.includes("playlist") || errorMsg.includes("image");
-                if (esCarruselError && isTiktok) {
-                    // Intentar como carrusel de imágenes
+
+                if (isTiktok && (esErrorFotoTiktok(errorMsg, url) || errorMsg.includes("image"))) {
                     try {
-                        const url2 = extraerUrlComando(rawText);
-                        await descargarCarruselImagenes(sock, jid, url2, "TikTok Carrusel");
+                        await descargarImagenesTiktok(sock, jid, url, "TikTok");
                     } catch (err2) {
-                        await sock.sendMessage(jid, { text: "❌ No pude descargar. Puede ser un carrusel privado o restringido." });
+                        console.error("Error descargarImagenesTiktok:", err2.message);
+                        await sock.sendMessage(jid, { text: "❌ No pude descargar las imágenes. Puede ser privado, restringido o el enlace está inválido." });
                     }
                 } else {
                     await sock.sendMessage(jid, { text: "❌ No pude obtener info de ese video. Puede ser privado, restringido o requerir iniciar sesión." });
@@ -896,8 +887,67 @@ function runProceso(comando, args, timeoutMs = 60_000) {
     });
 }
 
+const TIKTOK_API_URL = (process.env.TIKTOK_API_URL || "https://www.tikwm.com/api/").trim();
+
+function esUrlTiktok(url) {
+    return url.includes("tiktok.com") || url.includes("vm.tiktok.com") || url.includes("vt.tiktok.com");
+}
+
+function esUrlFotoTiktok(url) {
+    return /\/photo\//i.test(url);
+}
+
+function esErrorFotoTiktok(errorMsg, url) {
+    const msg = String(errorMsg || "").toLowerCase();
+    if (esUrlFotoTiktok(url)) return true;
+    if (msg.includes("no video formats found")) return true;
+    if (msg.includes("unsupported url") && msg.includes("tiktok.com/?")) return false;
+    if (msg.includes("unsupported url") && msg.includes("/photo/")) return true;
+    return msg.includes("photo");
+}
+
+function infoDesdeTiktokApi(data, url) {
+    const imagenes = Array.isArray(data.images) ? data.images.filter(Boolean) : [];
+    const esFoto = imagenes.length > 0 || (!data.duration && !!data.cover);
+    return {
+        url,
+        title: data.title || "TikTok",
+        duracion: Number(data.duration) || 0,
+        thumbnail: data.cover || imagenes[0] || null,
+        esFoto,
+        esCarrusel: imagenes.length > 1,
+        isTiktok: true,
+        imagenes,
+    };
+}
+
+async function consultarTiktokApi(url) {
+    const { data } = await axios.post(TIKTOK_API_URL, { url }, {
+        timeout: 30_000,
+        headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "JABESHT-BOT/1.0",
+        },
+    });
+    if (data.code !== 0 || !data.data) {
+        throw new Error(data.msg || "No se pudo consultar TikTok");
+    }
+    return data.data;
+}
+
+async function obtenerInfoTiktokFoto(url) {
+    const data = await consultarTiktokApi(url);
+    const info = infoDesdeTiktokApi(data, url);
+    if (!info.esFoto) throw new Error("No se encontraron imágenes en ese TikTok");
+    return info;
+}
+
 async function obtenerInfoVideo(url) {
-    const isTiktok = url.includes("tiktok.com") || url.includes("vm.tiktok.com") || url.includes("vt.tiktok.com");
+    const isTiktok = esUrlTiktok(url);
+
+    if (isTiktok && esUrlFotoTiktok(url)) {
+        return obtenerInfoTiktokFoto(url);
+    }
     
     // TikTok: intenta sin argumentos de formato primero
     let args = ["--dump-json", "--no-playlist"];
@@ -923,12 +973,8 @@ async function obtenerInfoVideo(url) {
             rawInfo: info,
         };
     } catch (err) {
-        // Detectar si es foto de TikTok por error de yt-dlp
-        const errorMsg = err.message.toLowerCase();
-        if ((errorMsg.includes("unsupported url") || errorMsg.includes("photo")) && isTiktok) {
-            const error = new Error("TIKTOK_PHOTO_ONLY");
-            error.isTiktokPhoto = true;
-            throw error;
+        if (isTiktok && esErrorFotoTiktok(err.message, url)) {
+            return obtenerInfoTiktokFoto(url);
         }
         throw err;
     }
@@ -1090,60 +1136,56 @@ async function descargarAudio(sock, jid, url, title, duracion) {
     }
 }
 
-// ─── Descargar carrusel de imágenes de TikTok (sin marca de agua) ────────────
-async function descargarCarruselImagenes(sock, jid, url, title) {
-    const baseDir = path.join(TMP, `carrusel_${Date.now()}`);
-    if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true });
-    
+// ─── Descargar fotos/carruseles de TikTok ─────────────────────────────────────
+async function descargarImagenesTiktok(sock, jid, url, title, imagenesPrecargadas = null) {
     try {
-        await sock.sendMessage(jid, { text: "⏳ Descargando carrusel de imágenes..." });
-        
-        // Descargar imágenes con yt-dlp (sin marca de agua nativa de TikTok)
-        const args = [
-            "--write-info-json",
-            "--extract-flat=in_playlist",
-            "-o", path.join(baseDir, "%(title)s_%(id)s.%(ext)s"),
-            url
-        ];
-        
-        console.log("▶ yt-dlp carrusel:", args.join(" "));
-        await runYtdlp(args, 120_000);
-        
-        // Buscar archivos descargados
-        const archivos = fs.readdirSync(baseDir).filter(f => /\.(jpg|jpeg|png|webp)$/i.test(f));
-        
-        if (!archivos.length) {
-            throw new Error("No se encontraron imágenes en el carrusel");
+        await sock.sendMessage(jid, { text: "⏳ Descargando imagen(es) de TikTok..." });
+
+        let imagenes = imagenesPrecargadas;
+        let titulo = title || "TikTok";
+
+        if (!imagenes?.length) {
+            const data = await consultarTiktokApi(url);
+            titulo = data.title || titulo;
+            imagenes = Array.isArray(data.images) ? data.images.filter(Boolean) : [];
+            if (!imagenes.length && data.cover) imagenes = [data.cover];
         }
-        
-        // Enviar las primeras 10 imágenes
-        const imagenesProcesar = archivos.slice(0, 10);
-        await sock.sendMessage(jid, { text: `📷 Encontré ${archivos.length} imagen(es). Enviando...` });
-        
+
+        if (!imagenes.length) {
+            throw new Error("No se encontraron imágenes");
+        }
+
+        const imagenesProcesar = imagenes.slice(0, 10);
+        await sock.sendMessage(jid, { text: `📷 Encontré ${imagenes.length} imagen(es). Enviando...` });
+
         for (let i = 0; i < imagenesProcesar.length; i++) {
-            const imgPath = path.join(baseDir, imagenesProcesar[i]);
             try {
-                const buffer = fs.readFileSync(imgPath);
+                const buffer = await descargarImagen(imagenesProcesar[i]);
                 await sock.sendMessage(jid, {
                     image: buffer,
-                    caption: `Imagen ${i + 1}/${imagenesProcesar.length}`
+                    caption: imagenes.length > 1 ? `Imagen ${i + 1}/${imagenes.length}` : titulo,
                 });
                 await esperar(300);
             } catch (e) {
                 console.error(`Error enviando imagen ${i + 1}:`, e.message);
             }
         }
-        
-        if (archivos.length > 10) {
-            await sock.sendMessage(jid, { text: `ℹ️ Hay ${archivos.length - 10} imagen(es) más, pero solo envié las primeras 10.` });
+
+        if (imagenes.length > 10) {
+            await sock.sendMessage(jid, { text: `ℹ️ Hay ${imagenes.length - 10} imagen(es) más, pero solo envié las primeras 10.` });
         }
-        
-        limpiarArchivosGenerados(baseDir);
-        await sock.sendMessage(jid, { text: "✅ Carrusel completado" });
-        
+
+        await sock.sendMessage(jid, { text: `✅ *${titulo}*` });
     } catch (err) {
-        console.error("Error descargarCarruselImagenes:", err.message);
-        limpiarArchivosGenerados(baseDir);
+        console.error("Error descargarImagenesTiktok:", err.message);
+        throw err;
+    }
+}
+
+async function descargarCarruselImagenes(sock, jid, url, title) {
+    try {
+        await descargarImagenesTiktok(sock, jid, url, title);
+    } catch (err) {
         await sock.sendMessage(jid, { text: "❌ No pude descargar el carrusel. Puede ser privado o restringido." });
     }
 }
