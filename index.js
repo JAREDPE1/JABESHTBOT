@@ -462,16 +462,16 @@ async function startBot() {
             } catch (err) {
                 console.error("Error descarga por URL:", err.message);
                 const isTiktok = url.includes("tiktok.com") || url.includes("vm.tiktok.com") || url.includes("vt.tiktok.com");
-                const errorMsg = err.message.toLowerCase();
+                const errorMsg = String(err.message || "").toLowerCase();
                 
-                // Detectar si es foto de TikTok por error de yt-dlp
-                const esFotoIndividual = (
+                // Detectar si es foto de TikTok
+                const esFotoTiktok = (
                     err.message === "TIKTOK_PHOTO_ONLY" ||
                     errorMsg.includes("unsupported url") ||
-                    errorMsg.includes("photo")
-                ) && isTiktok;
+                    (errorMsg.includes("photo") && isTiktok && errorMsg.includes("tiktok"))
+                );
                 
-                if (esFotoIndividual) {
+                if (esFotoTiktok) {
                     await sock.sendMessage(jid, { text: "📸 Esta es una foto individual de TikTok.\n\n💡 Solo puedo descargar videos y carruseles de TikTok.\n\nPrueba compartiendo un video o un carrusel (deslizable) de TikTok." });
                     return;
                 }
@@ -903,7 +903,6 @@ function runProceso(comando, args, timeoutMs = 60_000) {
 
 async function obtenerInfoVideo(url) {
     const isTiktok = url.includes("tiktok.com") || url.includes("vm.tiktok.com") || url.includes("vt.tiktok.com");
-    const esFotoTiktok = isTiktok && url.includes("/photo/");
     
     // TikTok: intenta sin argumentos de formato primero
     let args = ["--dump-json", "--no-playlist"];
@@ -929,9 +928,12 @@ async function obtenerInfoVideo(url) {
             rawInfo: info,
         };
     } catch (err) {
-        // Si es foto de TikTok, intentar descargar como carrusel
-        if (esFotoTiktok) {
-            throw new Error("TIKTOK_PHOTO_ONLY");
+        // Detectar si es foto de TikTok por error de yt-dlp
+        const errorMsg = err.message.toLowerCase();
+        if ((errorMsg.includes("unsupported url") || errorMsg.includes("photo")) && isTiktok) {
+            const error = new Error("TIKTOK_PHOTO_ONLY");
+            error.isTiktokPhoto = true;
+            throw error;
         }
         throw err;
     }
