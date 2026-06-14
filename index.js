@@ -461,6 +461,13 @@ async function startBot() {
                 }
             } catch (err) {
                 console.error("Error descarga por URL:", err.message);
+                
+                // Manejo especial para fotos de TikTok
+                if (err.message === "TIKTOK_PHOTO_ONLY") {
+                    await sock.sendMessage(jid, { text: "📸 Esta es una foto individual de TikTok.\n\n💡 Solo puedo descargar videos y carruseles de TikTok.\n\nPrueba compartiendo un video o un carrusel (deslizable) de TikTok." });
+                    return;
+                }
+                
                 const esCarruselError = err.message.includes("playlist") || err.message.includes("image");
                 if (esCarruselError) {
                     // Intentar como carrusel de imágenes
@@ -888,27 +895,38 @@ function runProceso(comando, args, timeoutMs = 60_000) {
 
 async function obtenerInfoVideo(url) {
     const isTiktok = url.includes("tiktok.com") || url.includes("vm.tiktok.com") || url.includes("vt.tiktok.com");
+    const esFotoTiktok = isTiktok && url.includes("/photo/");
     
-    // Para TikTok, usar opciones sin marca de agua
-    const args = isTiktok 
-        ? ["--dump-json", "--no-playlist", "-f", "best", url]
-        : ["--dump-json", "--no-playlist", url];
+    // TikTok: intenta sin argumentos de formato primero
+    let args = ["--dump-json", "--no-playlist"];
+    if (!isTiktok) {
+        args.push("--no-warnings");
+    }
+    args.push(url);
     
-    const stdout = await runYtdlp(args);
-    const info = JSON.parse(stdout.trim().split("\n")[0]);
-    
-    // Detectar si es carrusel de imágenes (TikTok)
-    const esCarrusel = info._type === "playlist" || (info.entries && info.entries.length > 1 && !info.ext);
-    
-    return {
-        url:       info.webpage_url || info.original_url || url,
-        title:     info.title || info.fulltitle || "Post",
-        duracion:  Number(info.duration) || 0,
-        thumbnail: info.thumbnail || null,
-        esCarrusel,
-        isTiktok,
-        rawInfo: info,
-    };
+    try {
+        const stdout = await runYtdlp(args, 30_000);
+        const info = JSON.parse(stdout.trim().split("\n")[0]);
+        
+        // Detectar si es carrusel de imágenes (TikTok)
+        const esCarrusel = info._type === "playlist" || (info.entries && info.entries.length > 1 && !info.ext);
+        
+        return {
+            url:       info.webpage_url || info.original_url || url,
+            title:     info.title || info.fulltitle || "Post",
+            duracion:  Number(info.duration) || 0,
+            thumbnail: info.thumbnail || null,
+            esCarrusel,
+            isTiktok,
+            rawInfo: info,
+        };
+    } catch (err) {
+        // Si es foto de TikTok, intentar descargar como carrusel
+        if (esFotoTiktok) {
+            throw new Error("TIKTOK_PHOTO_ONLY");
+        }
+        throw err;
+    }
 }
 
 function extraerUrlComando(texto) {
