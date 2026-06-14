@@ -453,10 +453,26 @@ async function startBot() {
             }
             try {
                 const info = await obtenerInfoVideo(url);
-                await preguntarFormato(sock, jid, info);
+                // Si es carrusel de TikTok, descargar imágenes directamente
+                if (info.esCarrusel && info.isTiktok) {
+                    await descargarCarruselImagenes(sock, jid, url, info.title);
+                } else {
+                    await preguntarFormato(sock, jid, info);
+                }
             } catch (err) {
                 console.error("Error descarga por URL:", err.message);
-                await sock.sendMessage(jid, { text: "❌ No pude obtener info de ese video. Puede ser privado, restringido o requerir iniciar sesión." });
+                const esCarruselError = err.message.includes("playlist") || err.message.includes("image");
+                if (esCarruselError) {
+                    // Intentar como carrusel de imágenes
+                    try {
+                        const url2 = extraerUrlComando(rawText);
+                        await descargarCarruselImagenes(sock, jid, url2, "TikTok Carrusel");
+                    } catch (err2) {
+                        await sock.sendMessage(jid, { text: "❌ No pude descargar. Puede ser un carrusel privado o restringido." });
+                    }
+                } else {
+                    await sock.sendMessage(jid, { text: "❌ No pude obtener info de ese video. Puede ser privado, restringido o requerir iniciar sesión." });
+                }
             }
             return;
         }
@@ -871,13 +887,27 @@ function runProceso(comando, args, timeoutMs = 60_000) {
 }
 
 async function obtenerInfoVideo(url) {
-    const stdout = await runYtdlp(["--dump-json", "--no-playlist", url]);
+    const isTiktok = url.includes("tiktok.com") || url.includes("vm.tiktok.com") || url.includes("vt.tiktok.com");
+    
+    // Para TikTok, usar opciones sin marca de agua
+    const args = isTiktok 
+        ? ["--dump-json", "--no-playlist", "-f", "best", url]
+        : ["--dump-json", "--no-playlist", url];
+    
+    const stdout = await runYtdlp(args);
     const info = JSON.parse(stdout.trim().split("\n")[0]);
+    
+    // Detectar si es carrusel de imágenes (TikTok)
+    const esCarrusel = info._type === "playlist" || (info.entries && info.entries.length > 1 && !info.ext);
+    
     return {
         url:       info.webpage_url || info.original_url || url,
-        title:     info.title || info.fulltitle || "Video",
+        title:     info.title || info.fulltitle || "Post",
         duracion:  Number(info.duration) || 0,
         thumbnail: info.thumbnail || null,
+        esCarrusel,
+        isTiktok,
+        rawInfo: info,
     };
 }
 
@@ -1037,6 +1067,64 @@ async function descargarAudio(sock, jid, url, title, duracion) {
     }
 }
 
+// ─── Descargar carrusel de imágenes de TikTok (sin marca de agua) ────────────
+async function descargarCarruselImagenes(sock, jid, url, title) {
+    const baseDir = path.join(TMP, `carrusel_${Date.now()}`);
+    if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true });
+    
+    try {
+        await sock.sendMessage(jid, { text: "⏳ Descargando carrusel de imágenes..." });
+        
+        // Descargar imágenes con yt-dlp (sin marca de agua nativa de TikTok)
+        const args = [
+            "--write-info-json",
+            "--extract-flat=in_playlist",
+            "-o", path.join(baseDir, "%(title)s_%(id)s.%(ext)s"),
+            url
+        ];
+        
+        console.log("▶ yt-dlp carrusel:", args.join(" "));
+        await runYtdlp(args, 120_000);
+        
+        // Buscar archivos descargados
+        const archivos = fs.readdirSync(baseDir).filter(f => /\.(jpg|jpeg|png|webp)$/i.test(f));
+        
+        if (!archivos.length) {
+            throw new Error("No se encontraron imágenes en el carrusel");
+        }
+        
+        // Enviar las primeras 10 imágenes
+        const imagenesProcesar = archivos.slice(0, 10);
+        await sock.sendMessage(jid, { text: `📷 Encontré ${archivos.length} imagen(es). Enviando...` });
+        
+        for (let i = 0; i < imagenesProcesar.length; i++) {
+            const imgPath = path.join(baseDir, imagenesProcesar[i]);
+            try {
+                const buffer = fs.readFileSync(imgPath);
+                await sock.sendMessage(jid, {
+                    image: buffer,
+                    caption: `Imagen ${i + 1}/${imagenesProcesar.length}`
+                });
+                await esperar(300);
+            } catch (e) {
+                console.error(`Error enviando imagen ${i + 1}:`, e.message);
+            }
+        }
+        
+        if (archivos.length > 10) {
+            await sock.sendMessage(jid, { text: `ℹ️ Hay ${archivos.length - 10} imagen(es) más, pero solo envié las primeras 10.` });
+        }
+        
+        limpiarArchivosGenerados(baseDir);
+        await sock.sendMessage(jid, { text: "✅ Carrusel completado" });
+        
+    } catch (err) {
+        console.error("Error descargarCarruselImagenes:", err.message);
+        limpiarArchivosGenerados(baseDir);
+        await sock.sendMessage(jid, { text: "❌ No pude descargar el carrusel. Puede ser privado o restringido." });
+    }
+}
+
 // ─── Descargar y enviar MP4 con yt-dlp ───────────────────────────────────────
 async function descargarVideo(sock, jid, url, title) {
     const base    = path.join(TMP, `video_${Date.now()}`);
@@ -1078,7 +1166,12 @@ async function descargarVideo(sock, jid, url, title) {
     } catch (err) {
         console.error("Error descargarVideo:", err.message);
         limpiarArchivosGenerados(base);
-        await sock.sendMessage(jid, { text: "❌ No pude descargar el video. Prueba con MP3." });
+        // Si falla el video, intentar como carrusel (por si es TikTok)
+        try {
+            await descargarCarruselImagenes(sock, jid, url, title);
+        } catch (e) {
+            await sock.sendMessage(jid, { text: "❌ No pude descargar el video ni como carrusel. Prueba con MP3." });
+        }
     }
 }
 
