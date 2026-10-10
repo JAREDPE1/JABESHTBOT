@@ -12,6 +12,10 @@ Bot de WhatsApp hecho con Node.js y Baileys.
 - Responder preguntas con IA y generar trabajos academicos en texto y Word.
 - Avisar cuando `anflo1` prende stream en Kick.
 - Monitorear TikTok y avisar cuando una cuenta publica sube video nuevo.
+- Monitorear canales públicos de YouTube y avisar cuando publican videos.
+- Monitorear publicaciones de una cuenta profesional propia de Instagram con Graph API.
+- Adjuntar miniaturas a los avisos cuando la plataforma las ofrece.
+- Mostrar el tiempo conectado en `!estado` y actualizar la info del perfil cada minuto.
 - Mostrar creditos con `.creador`.
 
 ## Requisitos
@@ -136,6 +140,9 @@ Opcionales:
 - `OPENAI_TIMEOUT_MS`: tiempo maximo de espera para OpenAI.
 - `IA_MAX_TOKENS`: limite de salida para `!ia`.
 - `DOC_MAX_TOKENS`: limite de salida para documentos academicos.
+- `INSTAGRAM_USER_ID`: ID de tu propia cuenta profesional de Instagram con acceso a Graph API.
+- `INSTAGRAM_ACCESS_TOKEN`: token de Instagram Graph API con permiso para leer sus publicaciones.
+- `INSTAGRAM_GRAPH_BASE_URL`: base opcional de Graph API si tu app usa otra ruta o version.
 
 Puedes copiar `.env.example` a `.env` y editarlo:
 
@@ -187,6 +194,10 @@ npm start
 - `!verkick`
 - `!activartiktok @usuario`
 - `!vertiktok`
+- `!activaryoutube @canal` o `!activaryoutube URL_DEL_CANAL`
+- `!veryoutube`
+- `!activarinstagram @usuario`
+- `!verinstagram`
 - `.creador`
 
 ## Primer Uso
@@ -197,6 +208,12 @@ npm start
    `!activarkick`
 4. En el grupo donde quieres avisos de TikTok escribe:
    `!activartiktok @usuario`
+5. Para YouTube usa `!activaryoutube @canal` en el grupo.
+6. Para Instagram configura `INSTAGRAM_USER_ID` y `INSTAGRAM_ACCESS_TOKEN` de tu propia cuenta profesional. Después usa `!activarinstagram @usuario` en el grupo.
+
+El primer video o publicación se guarda como referencia, sin mandar un aviso viejo. Los nuevos se revisan cada 5 minutos; Kick se revisa cada minuto. Si falla la miniatura, se envía el aviso en texto.
+
+La info de WhatsApp es texto estático entre actualizaciones. El bot la renueva cada minuto para evitar actualizar el perfil cada segundo. El comando `!estado` calcula días, horas, minutos y segundos al pedirlo.
 
 ## Sesion De WhatsApp
 

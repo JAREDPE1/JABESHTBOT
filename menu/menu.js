@@ -35,6 +35,10 @@ const startMenuText = `Hola, soy *[JABESHT - BOT]*
 - *!verkick* -> revisar si anflo1 esta en vivo
 - *!activartiktok @usuario* -> guardar este grupo para avisos de TikTok
 - *!vertiktok* -> revisar ultimo video de TikTok
+- *!activaryoutube @canal* -> avisos de videos nuevos de YouTube
+- *!veryoutube* -> revisar ultimo video de YouTube
+- *!activarinstagram @usuario* -> avisos de publicaciones de Instagram
+- *!verinstagram* -> revisar ultima publicacion de Instagram
         --CREADOR--
 - *.creador* -> ver creditos del bot
 `;
@@ -73,6 +77,10 @@ const botMenuText = `*[JABESHT - BOT]*
 - *!verkick* -> revisar si anflo1 esta en vivo
 - *!activartiktok @usuario* -> guardar este grupo para avisos de TikTok
 - *!vertiktok* -> revisar ultimo video de TikTok
+- *!activaryoutube @canal* -> avisos de videos nuevos de YouTube
+- *!veryoutube* -> revisar ultimo video de YouTube
+- *!activarinstagram @usuario* -> avisos de publicaciones de Instagram
+- *!verinstagram* -> revisar ultima publicacion de Instagram
         --CREADOR--
 - *.creador* -> ver creditos del bot
 `;

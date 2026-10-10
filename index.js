@@ -11,7 +11,6 @@ const qrcode   = require("qrcode-terminal");
 const ytSearch = require("yt-search");
 const fs       = require("fs");
 const path     = require("path");
-const https    = require("https");
 const http     = require("http");
 const axios    = require("axios");
 const { spawn } = require("child_process");
@@ -103,17 +102,25 @@ function ytdlpDisponible() {
 const sesiones = new Map();
 let reconectando = false;
 let kickMonitorTimer = null;
-let kickLiveAnterior = null;
 let tiktokMonitorTimer = null;
+let youtubeMonitorTimer = null;
+let instagramMonitorTimer = null;
+let profileStatusTimer = null;
+let connectedAt = null;
+const monitorBusy = { kick: false, tiktok: false, youtube: false, instagram: false };
 
 // Configuracion simple para avisos de Kick.
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const CONFIG_FILE = path.join(DATA_DIR, "bot-config.json");
 const TIKTOK_STATE_FILE = path.join(DATA_DIR, "tiktok-state.json");
+const SOCIAL_STATE_FILE = path.join(DATA_DIR, "social-state.json");
 const KICK_SLUG = "anflo1";
 const KICK_CHECK_MS = 60_000;
 const TIKTOK_CHECK_MS = 5 * 60_000;
+const YOUTUBE_CHECK_MS = 5 * 60_000;
+const INSTAGRAM_CHECK_MS = 5 * 60_000;
+const PROFILE_STATUS_CHECK_MS = 60_000;
 const BOT_NAME = "JABESHT - BOT";
 const BOT_HEADER = `*${BOT_NAME}*`;
 const DEFAULT_DNI_API_URL = "https://api.verificape.com/v2/dni/{dni}";
@@ -146,6 +153,30 @@ function cargarEstadoTiktok() {
 
 function guardarEstadoTiktok(estado) {
     fs.writeFileSync(TIKTOK_STATE_FILE, JSON.stringify(estado, null, 2));
+}
+
+function cargarEstadoSocial() {
+    try {
+        return JSON.parse(fs.readFileSync(SOCIAL_STATE_FILE, "utf8"));
+    } catch {
+        return {};
+    }
+}
+
+function guardarEstadoSocial(estado) {
+    fs.writeFileSync(SOCIAL_STATE_FILE, JSON.stringify(estado, null, 2));
+}
+
+async function ejecutarMonitor(nombre, tarea) {
+    if (monitorBusy[nombre]) return;
+    monitorBusy[nombre] = true;
+    try {
+        await tarea();
+    } catch (err) {
+        console.error(`${nombre} monitor:`, err.message);
+    } finally {
+        monitorBusy[nombre] = false;
+    }
 }
 
 function ponerMarcaBot(texto) {
@@ -193,6 +224,9 @@ function configurarApagadoLimpio() {
         console.log(`Recibido ${signal}. Cerrando monitores...`);
         detenerMonitorKick();
         detenerMonitorTiktok();
+        detenerMonitorYoutube();
+        detenerMonitorInstagram();
+        detenerEstadoPerfil();
         process.exit(0);
     };
 
@@ -242,13 +276,21 @@ async function startBot() {
         }
         if (connection === "open") {
             reconectando = false;
+            connectedAt = Date.now();
             console.log("✅ BOT CONECTADO:", sock.user?.id);
             iniciarMonitorKick(sock);
             iniciarMonitorTiktok(sock);
+            iniciarMonitorYoutube(sock);
+            iniciarMonitorInstagram(sock);
+            iniciarEstadoPerfil(sock);
         }
         if (connection === "close") {
+            connectedAt = null;
             detenerMonitorKick();
             detenerMonitorTiktok();
+            detenerMonitorYoutube();
+            detenerMonitorInstagram();
+            detenerEstadoPerfil();
             const code = lastDisconnect?.error?.output?.statusCode;
             if (code === DisconnectReason.loggedOut) {
                 console.log("⚠️  Sesión cerrada. Borra /auth y reinicia.");
@@ -415,12 +457,21 @@ async function startBot() {
                 return;
             }
 
-            botConfig.tiktokGroupJid = jid;
-            botConfig.tiktokUsername = usuario;
-            guardarConfig(botConfig);
-
+            try {
+                const video = await obtenerUltimoVideoTiktok(usuario);
+                botConfig.tiktokGroupJid = jid;
+                botConfig.tiktokUsername = usuario;
+                guardarConfig(botConfig);
+                const estado = cargarEstadoTiktok();
+                estado.usuarios = estado.usuarios || {};
+                estado.usuarios[usuario] = { lastVideoId: video.id, lastUrl: video.url, updatedAt: new Date().toISOString() };
+                guardarEstadoTiktok(estado);
+            } catch (err) {
+                console.error("Error !activartiktok:", err.message);
+                await sock.sendMessage(jid, { text: "No pude leer el perfil de TikTok. Revisa el usuario y que yt-dlp esté actualizado." });
+                return;
+            }
             detenerMonitorTiktok();
-            await inicializarEstadoTiktok(usuario);
             iniciarMonitorTiktok(sock);
 
             await sock.sendMessage(jid, {
@@ -437,10 +488,92 @@ async function startBot() {
 
             try {
                 const video = await obtenerUltimoVideoTiktok(botConfig.tiktokUsername);
-                await sock.sendMessage(jid, { text: crearMensajeTiktok(video) });
+                await enviarAvisoConImagen(sock, jid, video.thumbnail, crearMensajeTiktok(video));
             } catch (err) {
                 console.error("Error !vertiktok:", err.message);
                 await sock.sendMessage(jid, { text: "No pude revisar TikTok ahora. Intenta de nuevo en unos minutos." });
+            }
+            return;
+        }
+
+        if (/^!activaryoutube(\s|$)/.test(text)) {
+            if (!jid.endsWith("@g.us")) {
+                await sock.sendMessage(jid, { text: "Usa este comando dentro del grupo que recibirá los avisos." });
+                return;
+            }
+            const canal = limpiarCanalYoutube(rawText.replace(/^!activaryoutube/i, "").trim());
+            if (!canal) {
+                await sock.sendMessage(jid, { text: "Uso: *!activaryoutube @canal* o *!activaryoutube URL_DEL_CANAL*" });
+                return;
+            }
+            try {
+                const video = await obtenerUltimoVideoYoutube(canal);
+                botConfig.youtubeGroupJid = jid;
+                botConfig.youtubeChannel = canal;
+                guardarConfig(botConfig);
+                guardarUltimoSocial("youtube", canal, video.id);
+                detenerMonitorYoutube();
+                iniciarMonitorYoutube(sock);
+                await sock.sendMessage(jid, { text: `Listo. Avisaré aquí los videos nuevos de YouTube.\n${canal}` });
+            } catch (err) {
+                console.error("Error !activaryoutube:", err.message);
+                await sock.sendMessage(jid, { text: "No pude leer ese canal de YouTube. Revisa el nombre o enlace e inténtalo de nuevo." });
+            }
+            return;
+        }
+
+        if (text === "!veryoutube") {
+            if (!botConfig.youtubeChannel) {
+                await sock.sendMessage(jid, { text: "Configura primero *!activaryoutube @canal* en un grupo." });
+                return;
+            }
+            try {
+                const video = await obtenerUltimoVideoYoutube(botConfig.youtubeChannel);
+                await enviarAvisoConImagen(sock, jid, video.thumbnail, crearMensajeSocial("YouTube", video));
+            } catch (err) {
+                console.error("Error !veryoutube:", err.message);
+                await sock.sendMessage(jid, { text: "No pude consultar YouTube ahora." });
+            }
+            return;
+        }
+
+        if (/^!activarinstagram(\s|$)/.test(text)) {
+            if (!jid.endsWith("@g.us")) {
+                await sock.sendMessage(jid, { text: "Usa este comando dentro del grupo que recibirá los avisos." });
+                return;
+            }
+            const usuario = limpiarUsuarioInstagram(rawText.replace(/^!activarinstagram/i, "").trim());
+            if (!usuario) {
+                await sock.sendMessage(jid, { text: "Uso: *!activarinstagram @usuario*" });
+                return;
+            }
+            try {
+                const publicacion = await obtenerUltimaPublicacionInstagram();
+                botConfig.instagramGroupJid = jid;
+                botConfig.instagramUsername = usuario;
+                guardarConfig(botConfig);
+                guardarUltimoSocial("instagram", usuario, publicacion.id);
+                detenerMonitorInstagram();
+                iniciarMonitorInstagram(sock);
+                await sock.sendMessage(jid, { text: `Listo. Avisaré aquí las publicaciones nuevas de Instagram de *@${usuario}*.\nhttps://www.instagram.com/${usuario}/` });
+            } catch (err) {
+                console.error("Error !activarinstagram:", err.message);
+                await sock.sendMessage(jid, { text: "No pude activar Instagram. Configura INSTAGRAM_ACCESS_TOKEN e INSTAGRAM_USER_ID para una cuenta profesional propia y revisa el acceso a sus publicaciones." });
+            }
+            return;
+        }
+
+        if (text === "!verinstagram") {
+            if (!botConfig.instagramUsername) {
+                await sock.sendMessage(jid, { text: "Configura primero *!activarinstagram @usuario* en un grupo." });
+                return;
+            }
+            try {
+                const publicacion = await obtenerUltimaPublicacionInstagram();
+                await enviarAvisoConImagen(sock, jid, publicacion.thumbnail, crearMensajeSocial("Instagram", publicacion, botConfig.instagramUsername));
+            } catch (err) {
+                console.error("Error !verinstagram:", err.message);
+                await sock.sendMessage(jid, { text: "No pude consultar Instagram. Revisa el token y sus permisos." });
             }
             return;
         }
@@ -645,7 +778,7 @@ function crearMensajePing(msg) {
 
 function crearMensajeEstado() {
     const memoria = process.memoryUsage();
-    const uptime = formatearDuracion(process.uptime());
+    const uptime = formatearDuracion(connectedAt ? (Date.now() - connectedAt) / 1000 : 0);
     const rssMB = memoria.rss / (1024 * 1024);
     const heapMB = memoria.heapUsed / (1024 * 1024);
 
@@ -661,6 +794,8 @@ function crearMensajeEstado() {
         `🎬 ffmpeg: ${ffmpegDisponible() ? "OK" : "No encontrado"}`,
         `🟢 Kick monitor: ${kickMonitorTimer ? "activo" : "apagado"}`,
         `🎵 TikTok monitor: ${tiktokMonitorTimer ? "activo" : "apagado"}`,
+        `▶️ YouTube monitor: ${youtubeMonitorTimer ? "activo" : "apagado"}`,
+        `📷 Instagram monitor: ${instagramMonitorTimer ? "activo" : "apagado"}`,
     ].join("\n");
 }
 
@@ -670,12 +805,27 @@ function formatearDuracion(segundosTotales) {
     const horas = Math.floor((total % 86400) / 3600);
     const minutos = Math.floor((total % 3600) / 60);
     const segundos = total % 60;
-    const partes = [];
-    if (dias) partes.push(`${dias}d`);
-    if (horas) partes.push(`${horas}h`);
-    if (minutos) partes.push(`${minutos}m`);
-    partes.push(`${segundos}s`);
-    return partes.join(" ");
+    return `${dias}d ${horas}h ${minutos}m ${segundos}s`;
+}
+
+function iniciarEstadoPerfil(sock) {
+    detenerEstadoPerfil();
+    const actualizar = async () => {
+        if (!connectedAt) return;
+        try {
+            await sock.updateProfileStatus(`${BOT_NAME} | Conectado: ${formatearDuracion((Date.now() - connectedAt) / 1000)}`);
+        } catch (err) {
+            console.error("No pude actualizar la info del perfil:", err.message);
+        }
+    };
+    actualizar();
+    // WhatsApp no ofrece un contador animado en el perfil; se refresca cada minuto.
+    profileStatusTimer = setInterval(actualizar, PROFILE_STATUS_CHECK_MS);
+}
+
+function detenerEstadoPerfil() {
+    if (profileStatusTimer) clearInterval(profileStatusTimer);
+    profileStatusTimer = null;
 }
 
 function ffmpegDisponible() {
@@ -1272,14 +1422,14 @@ function iniciarMonitorKick(sock) {
     if (kickMonitorTimer) return;
 
     if (!botConfig.kickGroupJid) {
-        console.log("Kick: usa !setkickgroup en un grupo para activar avisos.");
+        console.log("Kick: usa !activarkick en un grupo para activar avisos.");
         return;
     }
 
     console.log(`Kick: monitoreando https://kick.com/${KICK_SLUG} para ${botConfig.kickGroupJid}`);
-    revisarKickYNotificar(sock).catch(err => console.error("Kick monitor:", err.message));
+    ejecutarMonitor("kick", () => revisarKickYNotificar(sock));
     kickMonitorTimer = setInterval(() => {
-        revisarKickYNotificar(sock).catch(err => console.error("Kick monitor:", err.message));
+        ejecutarMonitor("kick", () => revisarKickYNotificar(sock));
     }, KICK_CHECK_MS);
 }
 
@@ -1294,16 +1444,18 @@ async function revisarKickYNotificar(sock) {
 
     const stream = await obtenerEstadoKick(KICK_SLUG);
 
-    if (kickLiveAnterior === null) {
-        kickLiveAnterior = stream.isLive;
-        return;
-    }
-
-    if (stream.isLive && !kickLiveAnterior) {
+    const estado = cargarEstadoSocial();
+    const liveId = stream.liveId || (stream.isLive ? `${stream.slug}:${stream.title}` : null);
+    if (stream.isLive && (liveId !== estado.kickLiveId || estado.kickGroupJid !== botConfig.kickGroupJid)) {
         await enviarAvisoKick(sock, botConfig.kickGroupJid, stream);
+        estado.kickLiveId = liveId;
+        estado.kickGroupJid = botConfig.kickGroupJid;
+        guardarEstadoSocial(estado);
     }
-
-    kickLiveAnterior = stream.isLive;
+    if (!stream.isLive && estado.kickLiveId) {
+        delete estado.kickLiveId;
+        guardarEstadoSocial(estado);
+    }
 }
 
 async function obtenerEstadoKick(slug) {
@@ -1318,10 +1470,11 @@ async function obtenerEstadoKick(slug) {
     });
 
     const stream = data?.livestream || data?.stream || null;
-    const isLive = Boolean(stream?.is_live || stream?.isLive || data?.is_live);
+    const isLive = Boolean(stream && (stream?.is_live !== false && stream?.isLive !== false));
 
     return {
         isLive,
+        liveId: stream?.id ? String(stream.id) : stream?.created_at || stream?.start_time || null,
         slug: data?.slug || slug,
         title: stream?.session_title || stream?.stream_title || data?.stream_title || "Stream en vivo",
         category: stream?.categories?.[0]?.name || stream?.category?.name || data?.category?.name || null,
@@ -1395,9 +1548,9 @@ function iniciarMonitorTiktok(sock) {
     }
 
     console.log(`TikTok: monitoreando @${botConfig.tiktokUsername} para ${botConfig.tiktokGroupJid}`);
-    revisarTiktokYNotificar(sock).catch(err => console.error("TikTok monitor:", err.message));
+    ejecutarMonitor("tiktok", () => revisarTiktokYNotificar(sock));
     tiktokMonitorTimer = setInterval(() => {
-        revisarTiktokYNotificar(sock).catch(err => console.error("TikTok monitor:", err.message));
+        ejecutarMonitor("tiktok", () => revisarTiktokYNotificar(sock));
     }, TIKTOK_CHECK_MS);
 }
 
@@ -1405,22 +1558,6 @@ function detenerMonitorTiktok() {
     if (!tiktokMonitorTimer) return;
     clearInterval(tiktokMonitorTimer);
     tiktokMonitorTimer = null;
-}
-
-async function inicializarEstadoTiktok(username) {
-    try {
-        const video = await obtenerUltimoVideoTiktok(username);
-        const estado = cargarEstadoTiktok();
-        estado.usuarios = estado.usuarios || {};
-        estado.usuarios[username] = {
-            lastVideoId: video.id,
-            lastUrl: video.url,
-            updatedAt: new Date().toISOString()
-        };
-        guardarEstadoTiktok(estado);
-    } catch (err) {
-        console.error("TikTok init:", err.message);
-    }
 }
 
 async function revisarTiktokYNotificar(sock) {
@@ -1444,7 +1581,7 @@ async function revisarTiktokYNotificar(sock) {
 
     if (video.id === anterior) return;
 
-    await sock.sendMessage(botConfig.tiktokGroupJid, { text: crearMensajeTiktok(video) });
+    await enviarAvisoConImagen(sock, botConfig.tiktokGroupJid, video.thumbnail, crearMensajeTiktok(video));
     estado.usuarios[username] = {
         lastVideoId: video.id,
         lastUrl: video.url,
@@ -1461,6 +1598,7 @@ async function obtenerUltimoVideoTiktok(username) {
     const cleanUser = limpiarUsuarioTiktok(username);
     const perfilUrl = `https://www.tiktok.com/@${cleanUser}`;
     const stdout = await runYtdlp([
+        "--flat-playlist",
         "--dump-json",
         "--playlist-end", "1",
         "--no-warnings",
@@ -1486,9 +1624,10 @@ async function obtenerUltimoVideoTiktok(username) {
 
     return {
         id,
-        username: limpiarUsuarioTiktok(video.uploader_id || video.uploader || video.channel || cleanUser),
+        username: cleanUser,
         description: descripcion,
         url: video.webpage_url || `https://www.tiktok.com/@${cleanUser}/video/${id}`,
+        thumbnail: video.thumbnail || video.thumbnails?.find(item => item.id === "cover")?.url || video.thumbnails?.[0]?.url || null,
         detectedAt: formatearFechaDeteccion()
     };
 }
@@ -1504,6 +1643,136 @@ function crearMensajeTiktok(video) {
         "",
         "⚡ Detectado automaticamente por el bot"
     ].join("\n");
+}
+
+async function enviarAvisoConImagen(sock, jid, url, caption) {
+    if (url) {
+        try {
+            const imagen = await descargarImagen(url);
+            await sock.sendMessage(jid, { image: imagen, caption });
+            return;
+        } catch (err) {
+            console.error("No pude enviar la miniatura:", err.message);
+        }
+    }
+    await sock.sendMessage(jid, { text: caption });
+}
+
+function guardarUltimoSocial(red, cuenta, id) {
+    const estado = cargarEstadoSocial();
+    estado[red] = { cuenta, id, updatedAt: new Date().toISOString() };
+    guardarEstadoSocial(estado);
+}
+
+async function revisarSocialYNotificar(red, cuenta, jid, obtener, sock, usuario) {
+    const publicacion = await obtener(cuenta);
+    const anterior = cargarEstadoSocial()[red];
+    if (!anterior || anterior.cuenta !== cuenta) {
+        guardarUltimoSocial(red, cuenta, publicacion.id);
+        return;
+    }
+    if (anterior.id === publicacion.id) return;
+    await enviarAvisoConImagen(sock, jid, publicacion.thumbnail, crearMensajeSocial(red, publicacion, usuario));
+    guardarUltimoSocial(red, cuenta, publicacion.id);
+}
+
+function crearMensajeSocial(red, publicacion, usuario) {
+    return [
+        `📢 *NUEVA PUBLICACIÓN EN ${red.toUpperCase()}*`,
+        "",
+        usuario ? `👤 *Usuario:* @${usuario}` : null,
+        `🎬 *Título:* ${publicacion.title || "Nueva publicación"}`,
+        `🔗 ${publicacion.url}`,
+        `🕒 *Detectado:* ${formatearFechaDeteccion()}`
+    ].filter(Boolean).join("\n");
+}
+
+function limpiarCanalYoutube(valor) {
+    const input = String(valor || "").trim();
+    if (/^@[\w.-]+$/.test(input)) return `https://www.youtube.com/${input}/videos`;
+    if (/^UC[\w-]{20,}$/.test(input)) return `https://www.youtube.com/channel/${input}/videos`;
+    try {
+        const url = new URL(input);
+        if (!["youtube.com", "www.youtube.com", "m.youtube.com"].includes(url.hostname)) return null;
+        const partes = url.pathname.split("/").filter(Boolean);
+        if (partes[0]?.startsWith("@")) return `https://www.youtube.com/${partes[0]}/videos`;
+        if (partes[0] === "channel" && /^UC[\w-]{20,}$/.test(partes[1] || "")) {
+            return `https://www.youtube.com/channel/${partes[1]}/videos`;
+        }
+    } catch {}
+    return null;
+}
+
+async function obtenerUltimoVideoYoutube(canal) {
+    const salida = await runYtdlp(["--flat-playlist", "--dump-json", "--playlist-end", "1", "--no-warnings", canal], 120_000);
+    const entrada = salida.split(/\r?\n/).map(linea => {
+        try { return JSON.parse(linea); } catch { return null; }
+    }).find(item => item?.id);
+    if (!entrada) throw new Error("Canal de YouTube sin videos públicos");
+    return {
+        id: String(entrada.id),
+        title: entrada.title || "Nuevo video",
+        url: entrada.webpage_url || `https://www.youtube.com/watch?v=${entrada.id}`,
+        thumbnail: entrada.thumbnail || entrada.thumbnails?.at(-1)?.url || `https://i.ytimg.com/vi/${entrada.id}/hqdefault.jpg`
+    };
+}
+
+function iniciarMonitorYoutube(sock) {
+    if (youtubeMonitorTimer || !botConfig.youtubeGroupJid || !botConfig.youtubeChannel) return;
+    const revisar = () => ejecutarMonitor("youtube", () =>
+        revisarSocialYNotificar("youtube", botConfig.youtubeChannel, botConfig.youtubeGroupJid, obtenerUltimoVideoYoutube, sock));
+    revisar();
+    youtubeMonitorTimer = setInterval(revisar, YOUTUBE_CHECK_MS);
+}
+
+function detenerMonitorYoutube() {
+    if (youtubeMonitorTimer) clearInterval(youtubeMonitorTimer);
+    youtubeMonitorTimer = null;
+}
+
+function limpiarUsuarioInstagram(valor) {
+    return String(valor || "").trim()
+        .replace(/^https?:\/\/(www\.)?instagram\.com\//i, "")
+        .replace(/^@/, "")
+        .split(/[/?#\s]/)[0]
+        .replace(/[^a-zA-Z0-9._]/g, "");
+}
+
+async function obtenerUltimaPublicacionInstagram() {
+    const token = process.env.INSTAGRAM_ACCESS_TOKEN;
+    const userId = process.env.INSTAGRAM_USER_ID;
+    if (!token || !userId) throw new Error("Faltan INSTAGRAM_ACCESS_TOKEN o INSTAGRAM_USER_ID");
+    const apiBase = process.env.INSTAGRAM_GRAPH_BASE_URL || "https://graph.instagram.com/v25.0";
+    const url = `${apiBase.replace(/\/$/, "")}/${encodeURIComponent(userId)}/media`;
+    const { data } = await axios.get(url, {
+        timeout: 15_000,
+        params: {
+            fields: "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp",
+            limit: 1,
+            access_token: token
+        }
+    });
+    const item = data?.data?.[0];
+    if (!item?.id) throw new Error("La cuenta de Instagram no tiene publicaciones accesibles");
+    return {
+        id: String(item.id),
+        title: String(item.caption || "Nueva publicación").slice(0, 500),
+        url: item.permalink || `https://www.instagram.com/${botConfig.instagramUsername}/`,
+        thumbnail: item.thumbnail_url || item.media_url || null
+    };
+}
+
+function iniciarMonitorInstagram(sock) {
+    if (instagramMonitorTimer || !botConfig.instagramGroupJid || !botConfig.instagramUsername) return;
+    const revisar = () => ejecutarMonitor("instagram", () =>
+        revisarSocialYNotificar("instagram", botConfig.instagramUsername, botConfig.instagramGroupJid, obtenerUltimaPublicacionInstagram, sock, botConfig.instagramUsername));
+    revisar();
+    instagramMonitorTimer = setInterval(revisar, INSTAGRAM_CHECK_MS);
+}
+
+function detenerMonitorInstagram() {
+    if (instagramMonitorTimer) clearInterval(instagramMonitorTimer);
+    instagramMonitorTimer = null;
 }
 
 function limpiarUsuarioTiktok(usuario) {
@@ -1529,25 +1798,16 @@ function formatearFechaDeteccion() {
 }
 
 function descargarImagen(url) {
-    return new Promise((resolve, reject) => {
-        const chunks = [];
-        const req = https.get(url, {
-            headers: {
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
-            }
-        }, res => {
-            if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
-                const nextUrl = new URL(res.headers.location, url).toString();
-                descargarImagen(nextUrl).then(resolve).catch(reject);
-                return;
-            }
-            if (res.statusCode !== 200) { reject(new Error("HTTP " + res.statusCode)); return; }
-            res.on("data", c => chunks.push(c));
-            res.on("end", () => resolve(Buffer.concat(chunks)));
-        });
-        req.on("error", reject);
-        req.setTimeout(8000, () => { req.destroy(); reject(new Error("Timeout")); });
+    return axios.get(url, {
+        responseType: "arraybuffer",
+        timeout: 10_000,
+        maxContentLength: 10 * 1024 * 1024,
+        headers: { "User-Agent": "Mozilla/5.0", "Accept": "image/*,*/*;q=0.8" }
+    }).then(res => {
+        if (!String(res.headers["content-type"] || "").startsWith("image/")) {
+            throw new Error("La URL no devolvió una imagen");
+        }
+        return Buffer.from(res.data);
     });
 }
 
