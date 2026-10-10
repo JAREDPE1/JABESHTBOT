@@ -13,7 +13,7 @@ Bot de WhatsApp hecho con Node.js y Baileys.
 - Avisar cuando `anflo1` prende stream en Kick.
 - Monitorear TikTok y avisar cuando una cuenta publica sube video nuevo.
 - Monitorear canales públicos de YouTube y avisar cuando publican videos.
-- Monitorear publicaciones de una cuenta profesional propia de Instagram con Graph API.
+- Monitorear videos y reels de perfiles públicos de Instagram con Instaloader.
 - Adjuntar miniaturas a los avisos cuando la plataforma las ofrece.
 - Mostrar el tiempo conectado en `!estado` y actualizar la info del perfil cada minuto.
 - Mostrar creditos con `.creador`.
@@ -32,11 +32,14 @@ Bot de WhatsApp hecho con Node.js y Baileys.
 ```bash
 sudo apt update
 sudo apt install -y git curl ffmpeg nodejs npm
+sudo apt install -y python3 python3-venv
 sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
 sudo chmod a+rx /usr/local/bin/yt-dlp
 git clone URL_DE_TU_REPOSITORIO
 cd NOMBRE_DEL_REPOSITORIO
 npm install
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-instagram.txt
 npm start
 ```
 
@@ -140,9 +143,9 @@ Opcionales:
 - `OPENAI_TIMEOUT_MS`: tiempo maximo de espera para OpenAI.
 - `IA_MAX_TOKENS`: limite de salida para `!ia`.
 - `DOC_MAX_TOKENS`: limite de salida para documentos academicos.
-- `INSTAGRAM_USER_ID`: ID de tu propia cuenta profesional de Instagram con acceso a Graph API.
-- `INSTAGRAM_ACCESS_TOKEN`: token de Instagram Graph API con permiso para leer sus publicaciones.
-- `INSTAGRAM_GRAPH_BASE_URL`: base opcional de Graph API si tu app usa otra ruta o version.
+- `INSTAGRAM_PYTHON`: ruta opcional a Python con Instaloader instalado. Por defecto se usa `.venv/bin/python` si existe.
+- `INSTAGRAM_SESSION_USER` y `INSTAGRAM_SESSION_FILE`: sesion opcional de Instaloader cuando Instagram limita el acceso anonimo.
+- `INSTAGRAM_MODE=graph`, `INSTAGRAM_USER_ID` y `INSTAGRAM_ACCESS_TOKEN`: alternativa opcional para una cuenta profesional propia con Graph API.
 
 Puedes copiar `.env.example` a `.env` y editarlo:
 
@@ -209,9 +212,28 @@ npm start
 4. En el grupo donde quieres avisos de TikTok escribe:
    `!activartiktok @usuario`
 5. Para YouTube usa `!activaryoutube @canal` en el grupo.
-6. Para Instagram configura `INSTAGRAM_USER_ID` y `INSTAGRAM_ACCESS_TOKEN` de tu propia cuenta profesional. Después usa `!activarinstagram @usuario` en el grupo.
+6. Para Instagram instala Instaloader con los comandos anteriores. Después usa `!activarinstagram @usuario` en el grupo; la cuenta debe ser pública para consultarla sin iniciar sesión.
 
-El primer video o publicación se guarda como referencia, sin mandar un aviso viejo. Los nuevos se revisan cada 5 minutos; Kick se revisa cada minuto. Si falla la miniatura, se envía el aviso en texto.
+Si Instagram responde `429` o pide inicio de sesion, crea una sesion de Instaloader en el mismo usuario de Linux que ejecuta el bot:
+
+```bash
+.venv/bin/instaloader --login TU_USUARIO_DE_INSTAGRAM
+```
+
+Después agrega `INSTAGRAM_SESSION_USER=TU_USUARIO_DE_INSTAGRAM` a `.env` y reinicia el bot. La sesion se guarda por defecto en `~/.config/instaloader/`; conserva ese archivo privado. No pongas la contraseña en `.env` ni en el repositorio.
+
+Para actualizar una instalacion existente en Linux Mint:
+
+```bash
+git pull origin main
+sudo apt install -y python3-venv
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-instagram.txt
+npm ci
+pm2 restart jabesht-bot
+```
+
+El primer video se guarda como referencia, sin mandar un aviso viejo. Los nuevos se revisan cada 5 minutos; Kick se revisa cada minuto. Si falla la miniatura, se envía el aviso en texto. Instagram puede limitar el acceso anónimo; en ese caso el bot no avanza el estado y vuelve a intentar en la siguiente revisión.
 
 La info de WhatsApp es texto estático entre actualizaciones. El bot la renueva cada minuto para evitar actualizar el perfil cada segundo. El comando `!estado` calcula días, horas, minutos y segundos al pedirlo.
 

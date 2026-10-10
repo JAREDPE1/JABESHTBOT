@@ -1,4 +1,6 @@
 node_modules/
+.venv/
+__pycache__/
 tmp/
 logs/
 data/
@@ -15,6 +17,7 @@ auth_info_baileys/
 creds.json
 bot-config.json
 tiktok-state.json
+social-state.json
 
 *-player-script.js
 *.exe

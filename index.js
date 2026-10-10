@@ -548,17 +548,22 @@ async function startBot() {
                 return;
             }
             try {
-                const publicacion = await obtenerUltimaPublicacionInstagram();
+                const publicacion = await obtenerUltimoVideoInstagram(usuario);
                 botConfig.instagramGroupJid = jid;
                 botConfig.instagramUsername = usuario;
                 guardarConfig(botConfig);
                 guardarUltimoSocial("instagram", usuario, publicacion.id);
                 detenerMonitorInstagram();
                 iniciarMonitorInstagram(sock);
-                await sock.sendMessage(jid, { text: `Listo. Avisaré aquí las publicaciones nuevas de Instagram de *@${usuario}*.\nhttps://www.instagram.com/${usuario}/` });
+                await sock.sendMessage(jid, { text: `Listo. Avisaré aquí cuando *@${usuario}* publique un video o reel nuevo.\nhttps://www.instagram.com/${usuario}/` });
             } catch (err) {
                 console.error("Error !activarinstagram:", err.message);
-                await sock.sendMessage(jid, { text: "No pude activar Instagram. Configura INSTAGRAM_ACCESS_TOKEN e INSTAGRAM_USER_ID para una cuenta profesional propia y revisa el acceso a sus publicaciones." });
+                const limitado = /429|too many requests|login required|401/i.test(err.message);
+                await sock.sendMessage(jid, {
+                    text: limitado
+                        ? "Instagram limitó la consulta. Inicia una sesión con Instaloader en el servidor y configura INSTAGRAM_SESSION_USER; luego vuelve a intentarlo."
+                        : "No pude leer los videos de ese Instagram. Revisa que el perfil sea público y que Instaloader esté instalado."
+                });
             }
             return;
         }
@@ -569,11 +574,11 @@ async function startBot() {
                 return;
             }
             try {
-                const publicacion = await obtenerUltimaPublicacionInstagram();
+                const publicacion = await obtenerUltimoVideoInstagram(botConfig.instagramUsername);
                 await enviarAvisoConImagen(sock, jid, publicacion.thumbnail, crearMensajeSocial("Instagram", publicacion, botConfig.instagramUsername));
             } catch (err) {
                 console.error("Error !verinstagram:", err.message);
-                await sock.sendMessage(jid, { text: "No pude consultar Instagram. Revisa el token y sus permisos." });
+                await sock.sendMessage(jid, { text: "No pude consultar Instagram ahora. Revisa los logs del bot." });
             }
             return;
         }
@@ -795,7 +800,7 @@ function crearMensajeEstado() {
         `🟢 Kick monitor: ${kickMonitorTimer ? "activo" : "apagado"}`,
         `🎵 TikTok monitor: ${tiktokMonitorTimer ? "activo" : "apagado"}`,
         `▶️ YouTube monitor: ${youtubeMonitorTimer ? "activo" : "apagado"}`,
-        `📷 Instagram monitor: ${instagramMonitorTimer ? "activo" : "apagado"}`,
+        `📹 Instagram monitor: ${instagramMonitorTimer ? "activo" : "apagado"}`,
     ].join("\n");
 }
 
@@ -1678,7 +1683,7 @@ async function revisarSocialYNotificar(red, cuenta, jid, obtener, sock, usuario)
 
 function crearMensajeSocial(red, publicacion, usuario) {
     return [
-        `📢 *NUEVA PUBLICACIÓN EN ${red.toUpperCase()}*`,
+        `📢 *NUEVO VIDEO EN ${red.toUpperCase()}*`,
         "",
         usuario ? `👤 *Usuario:* @${usuario}` : null,
         `🎬 *Título:* ${publicacion.title || "Nueva publicación"}`,
@@ -1738,7 +1743,45 @@ function limpiarUsuarioInstagram(valor) {
         .replace(/[^a-zA-Z0-9._]/g, "");
 }
 
-async function obtenerUltimaPublicacionInstagram() {
+function pythonInstagram() {
+    if (process.env.INSTAGRAM_PYTHON) return process.env.INSTAGRAM_PYTHON;
+    const local = path.join(__dirname, ".venv", IS_WINDOWS ? "Scripts/python.exe" : "bin/python");
+    return fs.existsSync(local) ? local : (IS_WINDOWS ? "python" : "python3");
+}
+
+function consultarInstagramPublico(username) {
+    return new Promise((resolve, reject) => {
+        const proc = spawn(pythonInstagram(), [path.join(__dirname, "scripts", "instagram_latest.py"), username], {
+            windowsHide: true,
+            shell: false,
+        });
+        let stdout = "";
+        let stderr = "";
+        const timer = setTimeout(() => proc.kill(), 90_000);
+        proc.stdout.on("data", data => { stdout += data.toString(); });
+        proc.stderr.on("data", data => { stderr += data.toString(); });
+        proc.on("error", err => {
+            clearTimeout(timer);
+            reject(err);
+        });
+        proc.on("close", code => {
+            clearTimeout(timer);
+            if (code !== 0) {
+                reject(new Error(stderr.slice(-600) || "No se pudo consultar Instagram"));
+                return;
+            }
+            try {
+                resolve(JSON.parse(stdout.trim().split(/\r?\n/).at(-1)));
+            } catch {
+                reject(new Error("Respuesta inválida del monitor de Instagram"));
+            }
+        });
+    });
+}
+
+async function obtenerUltimoVideoInstagram(username) {
+    if (process.env.INSTAGRAM_MODE !== "graph") return consultarInstagramPublico(username);
+
     const token = process.env.INSTAGRAM_ACCESS_TOKEN;
     const userId = process.env.INSTAGRAM_USER_ID;
     if (!token || !userId) throw new Error("Faltan INSTAGRAM_ACCESS_TOKEN o INSTAGRAM_USER_ID");
@@ -1748,24 +1791,24 @@ async function obtenerUltimaPublicacionInstagram() {
         timeout: 15_000,
         params: {
             fields: "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp",
-            limit: 1,
+            limit: 10,
             access_token: token
         }
     });
-    const item = data?.data?.[0];
-    if (!item?.id) throw new Error("La cuenta de Instagram no tiene publicaciones accesibles");
+    const item = data?.data?.find(media => media.media_type === "VIDEO");
+    if (!item?.id) throw new Error("La cuenta de Instagram no tiene videos recientes accesibles");
     return {
         id: String(item.id),
-        title: String(item.caption || "Nueva publicación").slice(0, 500),
-        url: item.permalink || `https://www.instagram.com/${botConfig.instagramUsername}/`,
-        thumbnail: item.thumbnail_url || item.media_url || null
+        title: String(item.caption || "Nuevo video").slice(0, 500),
+        url: item.permalink || `https://www.instagram.com/${username}/`,
+        thumbnail: item.thumbnail_url || null
     };
 }
 
 function iniciarMonitorInstagram(sock) {
     if (instagramMonitorTimer || !botConfig.instagramGroupJid || !botConfig.instagramUsername) return;
     const revisar = () => ejecutarMonitor("instagram", () =>
-        revisarSocialYNotificar("instagram", botConfig.instagramUsername, botConfig.instagramGroupJid, obtenerUltimaPublicacionInstagram, sock, botConfig.instagramUsername));
+        revisarSocialYNotificar("instagram", botConfig.instagramUsername, botConfig.instagramGroupJid, obtenerUltimoVideoInstagram, sock, botConfig.instagramUsername));
     revisar();
     instagramMonitorTimer = setInterval(revisar, INSTAGRAM_CHECK_MS);
 }
