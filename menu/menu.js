@@ -32,12 +32,16 @@ const startMenuText = `Hola, soy *[JABESHT - BOT]*
 - *!ping* -> probar velocidad del bot
 - *!estado* -> ver estado del bot
 - *!activarkick* -> guardar este grupo para avisos de Kick
+- *!desactivarkick* -> detener avisos de Kick en este grupo
 - *!verkick* -> revisar si anflo1 esta en vivo
 - *!activartiktok @usuario* -> guardar este grupo para avisos de TikTok
+- *!desactivartiktok @usuario* -> detener avisos de TikTok
 - *!vertiktok* -> revisar ultimo video de TikTok
 - *!activaryoutube @canal* -> avisos de videos nuevos de YouTube
+- *!desactivaryoutube @canal* -> detener avisos de YouTube
 - *!veryoutube* -> revisar ultimo video de YouTube
 - *!activarinstagram @usuario* -> avisos de videos y reels de Instagram
+- *!desactivarinstagram @usuario* -> detener avisos de Instagram
 - *!verinstagram* -> revisar ultimo video de Instagram
         --CREADOR--
 - *.creador* -> ver creditos del bot
@@ -74,12 +78,16 @@ const botMenuText = `*[JABESHT - BOT]*
 - *!ping* -> probar velocidad del bot
 - *!estado* -> ver estado del bot
 - *!activarkick* -> guardar este grupo para avisos de Kick
+- *!desactivarkick* -> detener avisos de Kick en este grupo
 - *!verkick* -> revisar si anflo1 esta en vivo
 - *!activartiktok @usuario* -> guardar este grupo para avisos de TikTok
+- *!desactivartiktok @usuario* -> detener avisos de TikTok
 - *!vertiktok* -> revisar ultimo video de TikTok
 - *!activaryoutube @canal* -> avisos de videos nuevos de YouTube
+- *!desactivaryoutube @canal* -> detener avisos de YouTube
 - *!veryoutube* -> revisar ultimo video de YouTube
 - *!activarinstagram @usuario* -> avisos de videos y reels de Instagram
+- *!desactivarinstagram @usuario* -> detener avisos de Instagram
 - *!verinstagram* -> revisar ultimo video de Instagram
         --CREADOR--
 - *.creador* -> ver creditos del bot

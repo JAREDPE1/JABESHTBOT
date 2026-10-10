@@ -194,12 +194,16 @@ npm start
 - `!ping`
 - `!estado`
 - `!activarkick`
+- `!desactivarkick`
 - `!verkick`
 - `!activartiktok @usuario`
+- `!desactivartiktok @usuario`
 - `!vertiktok`
 - `!activaryoutube @canal` o `!activaryoutube URL_DEL_CANAL`
+- `!desactivaryoutube @canal`
 - `!veryoutube`
 - `!activarinstagram @usuario`
+- `!desactivarinstagram @usuario`
 - `!verinstagram`
 - `.creador`
 
@@ -234,6 +238,8 @@ pm2 restart jabesht-bot
 ```
 
 El primer video se guarda como referencia, sin mandar un aviso viejo. Los nuevos se revisan cada 5 minutos; Kick se revisa cada minuto. Si falla la miniatura, se envía el aviso en texto. Instagram puede limitar el acceso anónimo; en ese caso el bot no avanza el estado y vuelve a intentar en la siguiente revisión.
+
+Para detener avisos, escribe el comando `!desactivar...` correspondiente en el mismo grupo donde los activaste. Puedes omitir `@usuario` o `@canal`; si lo incluyes, el bot comprueba que coincida con la cuenta configurada.
 
 La info de WhatsApp es texto estático entre actualizaciones. El bot la renueva cada minuto para evitar actualizar el perfil cada segundo. El comando `!estado` calcula días, horas, minutos y segundos al pedirlo.
 

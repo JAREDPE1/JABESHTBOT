@@ -430,6 +430,16 @@ async function startBot() {
             return;
         }
 
+        if (text === "!desactivarkick") {
+            await desactivarAvisosGrupo(sock, jid, {
+                red: "Kick",
+                groupKey: "kickGroupJid",
+                accountKey: "kickSlug",
+                detener: detenerMonitorKick,
+            });
+            return;
+        }
+
         if (text === "!verkick") {
             try {
                 const stream = await obtenerEstadoKick(KICK_SLUG);
@@ -480,6 +490,23 @@ async function startBot() {
             return;
         }
 
+        if (/^!desactivartiktok(\s|$)/.test(text)) {
+            const entrada = rawText.replace(/^!desactivartiktok/i, "").trim();
+            const usuario = entrada ? limpiarUsuarioTiktok(entrada) : null;
+            if (entrada && !usuario) {
+                await sock.sendMessage(jid, { text: "Uso: *!desactivartiktok @usuario* o *!desactivartiktok*" });
+                return;
+            }
+            await desactivarAvisosGrupo(sock, jid, {
+                red: "TikTok",
+                groupKey: "tiktokGroupJid",
+                accountKey: "tiktokUsername",
+                esperado: usuario,
+                detener: detenerMonitorTiktok,
+            });
+            return;
+        }
+
         if (text === "!vertiktok") {
             if (!botConfig.tiktokUsername) {
                 await sock.sendMessage(jid, { text: "Aun no hay usuario de TikTok configurado. Usa *!activartiktok @usuario* dentro del grupo." });
@@ -519,6 +546,23 @@ async function startBot() {
                 console.error("Error !activaryoutube:", err.message);
                 await sock.sendMessage(jid, { text: "No pude leer ese canal de YouTube. Revisa el nombre o enlace e inténtalo de nuevo." });
             }
+            return;
+        }
+
+        if (/^!desactivaryoutube(\s|$)/.test(text)) {
+            const entrada = rawText.replace(/^!desactivaryoutube/i, "").trim();
+            const canal = entrada ? limpiarCanalYoutube(entrada) : null;
+            if (entrada && !canal) {
+                await sock.sendMessage(jid, { text: "Uso: *!desactivaryoutube @canal* o *!desactivaryoutube*" });
+                return;
+            }
+            await desactivarAvisosGrupo(sock, jid, {
+                red: "YouTube",
+                groupKey: "youtubeGroupJid",
+                accountKey: "youtubeChannel",
+                esperado: canal,
+                detener: detenerMonitorYoutube,
+            });
             return;
         }
 
@@ -565,6 +609,23 @@ async function startBot() {
                         : "No pude leer los videos de ese Instagram. Revisa que el perfil sea público y que Instaloader esté instalado."
                 });
             }
+            return;
+        }
+
+        if (/^!desactivarinstagram(\s|$)/.test(text)) {
+            const entrada = rawText.replace(/^!desactivarinstagram/i, "").trim();
+            const usuario = entrada ? limpiarUsuarioInstagram(entrada) : null;
+            if (entrada && !usuario) {
+                await sock.sendMessage(jid, { text: "Uso: *!desactivarinstagram @usuario* o *!desactivarinstagram*" });
+                return;
+            }
+            await desactivarAvisosGrupo(sock, jid, {
+                red: "Instagram",
+                groupKey: "instagramGroupJid",
+                accountKey: "instagramUsername",
+                esperado: usuario,
+                detener: detenerMonitorInstagram,
+            });
             return;
         }
 
@@ -811,6 +872,36 @@ function formatearDuracion(segundosTotales) {
     const minutos = Math.floor((total % 3600) / 60);
     const segundos = total % 60;
     return `${dias}d ${horas}h ${minutos}m ${segundos}s`;
+}
+
+async function desactivarAvisosGrupo(sock, jid, { red, groupKey, accountKey, esperado, detener }) {
+    if (!jid.endsWith("@g.us")) {
+        await sock.sendMessage(jid, { text: "Usa este comando dentro del grupo donde activaste los avisos." });
+        return;
+    }
+    if (!botConfig[groupKey]) {
+        await sock.sendMessage(jid, { text: `Los avisos de ${red} ya están desactivados.` });
+        return;
+    }
+    if (botConfig[groupKey] !== jid) {
+        await sock.sendMessage(jid, { text: `Los avisos de ${red} están configurados en otro grupo.` });
+        return;
+    }
+    if (esperado && botConfig[accountKey]?.toLowerCase() !== esperado.toLowerCase()) {
+        await sock.sendMessage(jid, { text: `Ese usuario o canal no coincide con el que está configurado para ${red}.` });
+        return;
+    }
+    detener();
+    delete botConfig[groupKey];
+    delete botConfig[accountKey];
+    guardarConfig(botConfig);
+    if (red === "Kick") {
+        const estado = cargarEstadoSocial();
+        delete estado.kickLiveId;
+        delete estado.kickGroupJid;
+        guardarEstadoSocial(estado);
+    }
+    await sock.sendMessage(jid, { text: `Avisos de ${red} desactivados en este grupo.` });
 }
 
 function iniciarEstadoPerfil(sock) {
@@ -1445,16 +1536,19 @@ function detenerMonitorKick() {
 }
 
 async function revisarKickYNotificar(sock) {
-    if (!botConfig.kickGroupJid) return;
+    const jid = botConfig.kickGroupJid;
+    if (!jid) return;
 
     const stream = await obtenerEstadoKick(KICK_SLUG);
+    if (botConfig.kickGroupJid !== jid) return;
 
     const estado = cargarEstadoSocial();
     const liveId = stream.liveId || (stream.isLive ? `${stream.slug}:${stream.title}` : null);
-    if (stream.isLive && (liveId !== estado.kickLiveId || estado.kickGroupJid !== botConfig.kickGroupJid)) {
-        await enviarAvisoKick(sock, botConfig.kickGroupJid, stream);
+    if (stream.isLive && (liveId !== estado.kickLiveId || estado.kickGroupJid !== jid)) {
+        await enviarAvisoKick(sock, jid, stream);
+        if (botConfig.kickGroupJid !== jid) return;
         estado.kickLiveId = liveId;
-        estado.kickGroupJid = botConfig.kickGroupJid;
+        estado.kickGroupJid = jid;
         guardarEstadoSocial(estado);
     }
     if (!stream.isLive && estado.kickLiveId) {
@@ -1568,8 +1662,10 @@ function detenerMonitorTiktok() {
 async function revisarTiktokYNotificar(sock) {
     if (!botConfig.tiktokGroupJid || !botConfig.tiktokUsername) return;
 
+    const jid = botConfig.tiktokGroupJid;
     const username = botConfig.tiktokUsername;
     const video = await obtenerUltimoVideoTiktok(username);
+    if (botConfig.tiktokGroupJid !== jid || botConfig.tiktokUsername !== username) return;
     const estado = cargarEstadoTiktok();
     estado.usuarios = estado.usuarios || {};
 
@@ -1586,7 +1682,8 @@ async function revisarTiktokYNotificar(sock) {
 
     if (video.id === anterior) return;
 
-    await enviarAvisoConImagen(sock, botConfig.tiktokGroupJid, video.thumbnail, crearMensajeTiktok(video));
+    await enviarAvisoConImagen(sock, jid, video.thumbnail, crearMensajeTiktok(video));
+    if (botConfig.tiktokGroupJid !== jid || botConfig.tiktokUsername !== username) return;
     estado.usuarios[username] = {
         lastVideoId: video.id,
         lastUrl: video.url,
@@ -1670,7 +1767,9 @@ function guardarUltimoSocial(red, cuenta, id) {
 }
 
 async function revisarSocialYNotificar(red, cuenta, jid, obtener, sock, usuario) {
+    const accountKey = red === "youtube" ? "youtubeChannel" : "instagramUsername";
     const publicacion = await obtener(cuenta);
+    if (botConfig[`${red}GroupJid`] !== jid || botConfig[accountKey] !== cuenta) return;
     const anterior = cargarEstadoSocial()[red];
     if (!anterior || anterior.cuenta !== cuenta) {
         guardarUltimoSocial(red, cuenta, publicacion.id);
@@ -1678,6 +1777,7 @@ async function revisarSocialYNotificar(red, cuenta, jid, obtener, sock, usuario)
     }
     if (anterior.id === publicacion.id) return;
     await enviarAvisoConImagen(sock, jid, publicacion.thumbnail, crearMensajeSocial(red, publicacion, usuario));
+    if (botConfig[`${red}GroupJid`] !== jid || botConfig[accountKey] !== cuenta) return;
     guardarUltimoSocial(red, cuenta, publicacion.id);
 }
 
