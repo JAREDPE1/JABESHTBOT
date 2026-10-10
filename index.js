@@ -612,9 +612,9 @@ async function startBot() {
         }
 
         if (text.startsWith("!play ")) {
-            const query = text.slice(8).trim();
+            const query = rawText.slice("!play ".length).trim();
             if (!query) {
-                await sock.sendMessage(jid, { text: "❌ Escribe qué buscar. Ej: *!buscar bohemian rhapsody*" });
+                await sock.sendMessage(jid, { text: "❌ Escribe qué buscar. Ej: *!play bohemian rhapsody*" });
                 return;
             }
             await buscarMejor(sock, jid, query);
