@@ -16,6 +16,7 @@ const axios    = require("axios");
 const { spawn } = require("child_process");
 const { randomUUID } = require("crypto");
 const { argumentosVideoWhatsapp } = require("./lib/video-format");
+const { crearEstadoPerfil } = require("./lib/profile-uptime");
 const { resolverCanalYoutube, obtenerVideosYoutube, procesarVideosYoutube } = require("./lib/youtube-monitor");
 require("dotenv").config();
 
@@ -108,7 +109,6 @@ let kickMonitorTimer = null;
 let tiktokMonitorTimer = null;
 let youtubeMonitorTimer = null;
 let instagramMonitorTimer = null;
-let profileStatusTimer = null;
 let connectedAt = null;
 const monitorBusy = { kick: false, tiktok: false, youtube: false, instagram: false };
 
@@ -126,6 +126,7 @@ const INSTAGRAM_CHECK_MS = 5 * 60_000;
 const PROFILE_STATUS_CHECK_MS = 60_000;
 const BOT_NAME = "JABESHT - BOT";
 const BOT_HEADER = `*${BOT_NAME}*`;
+const estadoPerfil = crearEstadoPerfil({ nombre: BOT_NAME, formatearDuracion, intervaloMs: PROFILE_STATUS_CHECK_MS });
 const DEFAULT_DNI_API_URL = "https://api.verificape.com/v2/dni/{dni}";
 
 function cargarConfig() {
@@ -223,13 +224,21 @@ function iniciarHealthServer() {
 }
 
 function configurarApagadoLimpio() {
-    const apagar = (signal) => {
+    let cerrando = false;
+    const apagar = async (signal) => {
+        if (cerrando) return;
+        cerrando = true;
         console.log(`Recibido ${signal}. Cerrando monitores...`);
         detenerMonitorKick();
         detenerMonitorTiktok();
         detenerMonitorYoutube();
         detenerMonitorInstagram();
-        detenerEstadoPerfil();
+        try {
+            await estadoPerfil.apagar();
+            console.log("Solicitud para borrar la Info. del perfil enviada.");
+        } catch (err) {
+            console.error("No pude borrar la Info. del perfil:", err.message);
+        }
         process.exit(0);
     };
 
@@ -293,7 +302,7 @@ async function startBot() {
             detenerMonitorTiktok();
             detenerMonitorYoutube();
             detenerMonitorInstagram();
-            detenerEstadoPerfil();
+            estadoPerfil.detener();
             const code = lastDisconnect?.error?.output?.statusCode;
             if (code === DisconnectReason.loggedOut) {
                 console.log("⚠️  Sesión cerrada. Borra /auth y reinicia.");
@@ -916,23 +925,7 @@ async function desactivarAvisosGrupo(sock, jid, { red, groupKey, accountKey, esp
 }
 
 function iniciarEstadoPerfil(sock) {
-    detenerEstadoPerfil();
-    const actualizar = async () => {
-        if (!connectedAt) return;
-        try {
-            await sock.updateProfileStatus(`${BOT_NAME} | Conectado: ${formatearDuracion((Date.now() - connectedAt) / 1000)}`);
-        } catch (err) {
-            console.error("No pude actualizar la info del perfil:", err.message);
-        }
-    };
-    actualizar();
-    // WhatsApp no ofrece un contador animado en el perfil; se refresca cada minuto.
-    profileStatusTimer = setInterval(actualizar, PROFILE_STATUS_CHECK_MS);
-}
-
-function detenerEstadoPerfil() {
-    if (profileStatusTimer) clearInterval(profileStatusTimer);
-    profileStatusTimer = null;
+    estadoPerfil.iniciar(sock, connectedAt);
 }
 
 function ffmpegDisponible() {

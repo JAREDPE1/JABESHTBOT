@@ -245,7 +245,7 @@ El primer video se guarda como referencia, sin mandar un aviso viejo. Los nuevos
 
 Para detener avisos, escribe el comando `!desactivar...` correspondiente en el mismo grupo donde los activaste. Puedes omitir `@usuario` o `@canal`; si lo incluyes, el bot comprueba que coincida con la cuenta configurada.
 
-La info de WhatsApp es texto estático entre actualizaciones. El bot la renueva cada minuto para evitar actualizar el perfil cada segundo. El comando `!estado` calcula días, horas, minutos y segundos al pedirlo.
+La sección Info. del perfil muestra el tiempo conectado y el bot la renueva cada minuto. Al detenerse normalmente intenta borrarla. WhatsApp puede tardar en reflejar los cambios; si se corta la luz o la red, el bot no puede borrar la Info. hasta volver a conectarse. El comando `!estado` calcula días, horas, minutos y segundos al pedirlo.
 
 ## Sesion De WhatsApp
 
@@ -266,7 +266,7 @@ Instala PM2:
 
 ```bash
 sudo npm install -g pm2
-pm2 start index.js --name jabesht-bot
+pm2 start index.js --name jabesht-bot --kill-timeout 10000
 pm2 save
 pm2 startup
 ```
@@ -282,6 +282,8 @@ Reiniciar:
 ```bash
 pm2 restart jabesht-bot
 ```
+
+Si ya habías creado el proceso sin `--kill-timeout`, configúralo una vez con `pm2 delete jabesht-bot`, luego `pm2 start index.js --name jabesht-bot --kill-timeout 10000` y `pm2 save`. Así PM2 da tiempo a borrar la Info. antes de forzar el cierre.
 
 ## Problemas Comunes
 
