@@ -421,11 +421,11 @@ async function startBot() {
             return;
         }
 
-        if (/^!(placa|sunarp)(\\s|$)/.test(text)) {
+        if (/^!(placa|sunarp)(\s|$)/.test(text)) {
             const entrada = rawText.replace(/^!(placa|sunarp)/i, "").trim();
             const placa = normalizarPlaca(entrada);
             if (!placa) {
-                await sock.sendMessage(jid, { text: "🚗 Uso: *!placa ABC123*\\nEscribe una placa peruana de 5 a 7 letras/números." });
+                await sock.sendMessage(jid, { text: "🚗 Uso: *!placa ABC123*\nEscribe una placa peruana de 5 a 7 letras/números." });
                 return;
             }
             const apiUrl = process.env.VEHICULO_API_URL?.trim();
@@ -443,7 +443,7 @@ async function startBot() {
                 await sock.sendMessage(jid, { text: formatearRespuestaVehicular(placa, data, { esPrivado }) });
             } catch (err) {
                 console.error("Error !placa:", err.response?.status || err.code || err.message);
-                await sock.sendMessage(jid, { text: "No pude completar la consulta automática.\\n\\n" + crearMensajeSunarpManual(placa) });
+                await sock.sendMessage(jid, { text: "No pude completar la consulta automática.\n\n" + crearMensajeSunarpManual(placa) });
             }
             return;
         }
