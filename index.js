@@ -14,6 +14,9 @@ const path     = require("path");
 const http     = require("http");
 const axios    = require("axios");
 const { spawn } = require("child_process");
+const { randomUUID } = require("crypto");
+const { argumentosVideoWhatsapp } = require("./lib/video-format");
+const { resolverCanalYoutube, obtenerVideosYoutube, procesarVideosYoutube } = require("./lib/youtube-monitor");
 require("dotenv").config();
 
 const { startMenuText, botMenuText, menuImagePath, hasMenuImage } = require("./menu/menu");
@@ -534,14 +537,21 @@ async function startBot() {
                 return;
             }
             try {
-                const video = await obtenerUltimoVideoYoutube(canal);
+                const channelId = await resolverCanalYoutube(canal, runYtdlp);
+                const videos = await obtenerVideosYoutube(channelId, axios.get);
+                const grupoAnterior = botConfig.youtubeGroupJid;
                 botConfig.youtubeGroupJid = jid;
                 botConfig.youtubeChannel = canal;
+                botConfig.youtubeChannelId = channelId;
                 guardarConfig(botConfig);
-                guardarUltimoSocial("youtube", canal, video.id);
+                const estado = cargarEstadoSocial();
+                if (!estado.youtube || estado.youtube.cuenta !== canal || grupoAnterior !== jid) {
+                    estado.youtube = { cuenta: canal, groupJid: jid, seenIds: videos.map(v => v.id), updatedAt: new Date().toISOString() };
+                    guardarEstadoSocial(estado);
+                }
                 detenerMonitorYoutube();
                 iniciarMonitorYoutube(sock);
-                await sock.sendMessage(jid, { text: `Listo. Avisaré aquí los videos nuevos de YouTube.\n${canal}` });
+                await sock.sendMessage(jid, { text: `Listo. Revisaré cada 5 minutos los videos y Shorts nuevos de YouTube.\n${canal}` });
             } catch (err) {
                 console.error("Error !activaryoutube:", err.message);
                 await sock.sendMessage(jid, { text: "No pude leer ese canal de YouTube. Revisa el nombre o enlace e inténtalo de nuevo." });
@@ -894,6 +904,7 @@ async function desactivarAvisosGrupo(sock, jid, { red, groupKey, accountKey, esp
     detener();
     delete botConfig[groupKey];
     delete botConfig[accountKey];
+    if (red === "YouTube") delete botConfig.youtubeChannelId;
     guardarConfig(botConfig);
     if (red === "Kick") {
         const estado = cargarEstadoSocial();
@@ -1438,24 +1449,27 @@ async function descargarCarruselImagenes(sock, jid, url, title) {
 
 // ─── Descargar y enviar MP4 con yt-dlp ───────────────────────────────────────
 async function descargarVideo(sock, jid, url, title) {
-    const base    = path.join(TMP, `video_${Date.now()}`);
-    const archivo = `${base}.mp4`;
+    const base = path.join(TMP, `video_${randomUUID()}`);
+    const archivo = `${base}_whatsapp.mp4`;
     try {
         const args = [
             "-f", "bv*[height<=720]+ba/b[height<=720]/best[height<=720]/best",
-            "--merge-output-format", "mp4",
-            "--remux-video", "mp4",
+            "--merge-output-format", "mkv",
             "--no-playlist",
-            "-o", `${base}.%(ext)s`,
+            "--no-simulate", "--print", "after_move:filepath",
+            "-o", `${base}_source.%(ext)s`,
             url
         ];
         console.log("▶ yt-dlp video:", args.join(" "));
-        await runYtdlp(args, 180_000);
-
-        const videoFile = buscarArchivoGenerado(base, ".mp4") || buscarArchivoGenerado(base);
-        if (!videoFile) throw new Error("Archivo de video no generado");
-
-        const sizeMB = fs.statSync(videoFile).size / (1024 * 1024);
+        const salida = await runYtdlp(args, 180_000);
+        const videoFile = salida.trim().split(/\r?\n/).at(-1);
+        if (!videoFile || !fs.existsSync(videoFile) || !fs.statSync(videoFile).isFile()) {
+            throw new Error("No se generó el archivo final de video");
+        }
+        await sock.sendMessage(jid, { text: "⏳ Preparando el video para reproducirlo en WhatsApp..." });
+        await runProceso(FFMPEG, argumentosVideoWhatsapp(videoFile, archivo), 10 * 60_000);
+        const sizeMB = fs.statSync(archivo).size / (1024 * 1024);
+        if (sizeMB === 0) throw new Error("El video convertido está vacío");
         if (sizeMB > 60) {
             await sock.sendMessage(jid, { 
                 text: `⚠️ El video pesa ${sizeMB.toFixed(1)}MB (límite WhatsApp 64MB). Te envío el MP3.` 
@@ -1467,22 +1481,21 @@ async function descargarVideo(sock, jid, url, title) {
         }
 
         await sock.sendMessage(jid, {
-            video: fs.readFileSync(videoFile),
+            video: fs.readFileSync(archivo),
             mimetype: "video/mp4",
             fileName: `${title}.mp4`,
         });
         await sock.sendMessage(jid, { text: `✅ *${title}*\n📦 ${sizeMB.toFixed(1)}MB` });
-        limpiarArchivosGenerados(base);
 
     } catch (err) {
         console.error("Error descargarVideo:", err.message);
-        limpiarArchivosGenerados(base);
-        // Si falla el video, intentar como carrusel (por si es TikTok)
-        try {
+        if (esUrlTiktok(url)) {
             await descargarCarruselImagenes(sock, jid, url, title);
-        } catch (e) {
-            await sock.sendMessage(jid, { text: "❌ No pude descargar el video ni como carrusel. Prueba con MP3." });
+        } else {
+            await sock.sendMessage(jid, { text: "❌ No pude preparar un video reproducible. Revisa que ffmpeg y yt-dlp estén instalados y actualizados." });
         }
+    } finally {
+        limpiarArchivosGenerados(base);
     }
 }
 
@@ -1747,17 +1760,19 @@ function crearMensajeTiktok(video) {
     ].join("\n");
 }
 
-async function enviarAvisoConImagen(sock, jid, url, caption) {
+async function enviarAvisoConImagen(sock, jid, url, caption, activo = () => true) {
+    if (!activo()) return;
     if (url) {
         try {
             const imagen = await descargarImagen(url);
+            if (!activo()) return;
             await sock.sendMessage(jid, { image: imagen, caption });
             return;
         } catch (err) {
             console.error("No pude enviar la miniatura:", err.message);
         }
     }
-    await sock.sendMessage(jid, { text: caption });
+    if (activo()) await sock.sendMessage(jid, { text: caption });
 }
 
 function guardarUltimoSocial(red, cuenta, id) {
@@ -1809,25 +1824,44 @@ function limpiarCanalYoutube(valor) {
 }
 
 async function obtenerUltimoVideoYoutube(canal) {
-    const salida = await runYtdlp(["--flat-playlist", "--dump-json", "--playlist-end", "1", "--no-warnings", canal], 120_000);
-    const entrada = salida.split(/\r?\n/).map(linea => {
-        try { return JSON.parse(linea); } catch { return null; }
-    }).find(item => item?.id);
-    if (!entrada) throw new Error("Canal de YouTube sin videos públicos");
-    return {
-        id: String(entrada.id),
-        title: entrada.title || "Nuevo video",
-        url: entrada.webpage_url || `https://www.youtube.com/watch?v=${entrada.id}`,
-        thumbnail: entrada.thumbnail || entrada.thumbnails?.at(-1)?.url || `https://i.ytimg.com/vi/${entrada.id}/hqdefault.jpg`
-    };
+    const channelId = botConfig.youtubeChannel === canal && botConfig.youtubeChannelId
+        ? botConfig.youtubeChannelId : await resolverCanalYoutube(canal, runYtdlp);
+    const videos = await obtenerVideosYoutube(channelId, axios.get);
+    if (!videos.length) throw new Error("El canal no tiene publicaciones en su feed");
+    return videos.at(-1);
+}
+
+async function revisarYoutubeYNotificar(sock) {
+    const canal = botConfig.youtubeChannel;
+    const jid = botConfig.youtubeGroupJid;
+    if (!canal || !jid) return;
+    const timer = youtubeMonitorTimer;
+    const activo = () => botConfig.youtubeChannel === canal && botConfig.youtubeGroupJid === jid
+        && Boolean(timer) && youtubeMonitorTimer === timer;
+    const channelId = botConfig.youtubeChannelId || await resolverCanalYoutube(canal, runYtdlp);
+    if (!activo()) return;
+    if (botConfig.youtubeChannelId !== channelId) {
+        botConfig.youtubeChannelId = channelId;
+        guardarConfig(botConfig);
+    }
+    const videos = await obtenerVideosYoutube(channelId, axios.get);
+    if (!activo()) return;
+    await procesarVideosYoutube({
+        videos, anterior: cargarEstadoSocial().youtube, cuenta: canal, activo,
+        enviar: video => enviarAvisoConImagen(sock, jid, video.thumbnail, crearMensajeSocial("YouTube", video), activo),
+        guardar: nuevo => {
+            const estado = cargarEstadoSocial();
+            estado.youtube = { ...nuevo, groupJid: jid };
+            guardarEstadoSocial(estado);
+        },
+    });
 }
 
 function iniciarMonitorYoutube(sock) {
     if (youtubeMonitorTimer || !botConfig.youtubeGroupJid || !botConfig.youtubeChannel) return;
-    const revisar = () => ejecutarMonitor("youtube", () =>
-        revisarSocialYNotificar("youtube", botConfig.youtubeChannel, botConfig.youtubeGroupJid, obtenerUltimoVideoYoutube, sock));
-    revisar();
+    const revisar = () => ejecutarMonitor("youtube", () => revisarYoutubeYNotificar(sock));
     youtubeMonitorTimer = setInterval(revisar, YOUTUBE_CHECK_MS);
+    revisar();
 }
 
 function detenerMonitorYoutube() {

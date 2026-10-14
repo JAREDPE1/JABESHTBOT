@@ -12,7 +12,7 @@ Bot de WhatsApp hecho con Node.js y Baileys.
 - Responder preguntas con IA y generar trabajos academicos en texto y Word.
 - Avisar cuando `anflo1` prende stream en Kick.
 - Monitorear TikTok y avisar cuando una cuenta publica sube video nuevo.
-- Monitorear canales públicos de YouTube y avisar cuando publican videos.
+- Monitorear el feed de canales públicos de YouTube y avisar de videos y Shorts nuevos, con miniatura.
 - Monitorear videos y reels de perfiles públicos de Instagram con Instaloader.
 - Adjuntar miniaturas a los avisos cuando la plataforma las ofrece.
 - Mostrar el tiempo conectado en `!estado` y actualizar la info del perfil cada minuto.
@@ -236,6 +236,10 @@ python3 -m venv .venv
 npm ci
 pm2 restart jabesht-bot
 ```
+
+YouTube guarda el ID del canal y consulta su feed cada 5 minutos, sin descargar videos para buscar novedades. Si aparecen varias publicaciones entre revisiones, avisa de cada una y conserva los envíos exitosos al reiniciar. La primera activación solo establece la referencia. El feed contiene las publicaciones recientes que YouTube expone; un apagado prolongado puede dejar publicaciones fuera de esa ventana. Referencia: [feeds de YouTube](https://developers.google.com/youtube/v3/guides/push_notifications).
+
+Los videos descargados con `!play` se convierten con FFmpeg a MP4 con video H.264, audio AAC y formato de color yuv420p antes de enviarlos. La conversión puede tardar según la duración y el equipo. Se aplica [faststart](https://www.ffmpeg.org/ffmpeg-formats.html) para colocar el índice al comienzo del archivo. Si la conversión falla, el bot informa el error en lugar de enviar el archivo defectuoso.
 
 El primer video se guarda como referencia, sin mandar un aviso viejo. Los nuevos se revisan cada 5 minutos; Kick se revisa cada minuto. Si falla la miniatura, se envía el aviso en texto. Instagram puede limitar el acceso anónimo; en ese caso el bot no avanza el estado y vuelve a intentar en la siguiente revisión.
 
