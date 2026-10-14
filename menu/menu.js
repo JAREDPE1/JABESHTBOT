@@ -28,7 +28,8 @@ const startMenuText = `Hola, soy *[JABESHT - BOT]*
 - *!objetivos <tema>* -> generar objetivos y Word
 - *!objetivos-pptx <tema>* -> generar objetivos y PowerPoint
 - *!s* -> crear sticker respondiendo a imagen/video
-- *!dni <numero>* -> consultar DNI 
+- *!dni <numero>* -> consultar DNI
+- *!placa <placa>* -> consulta vehicular SUNARP (enlace oficial o API autorizada) 
 - *!ping* -> probar velocidad del bot
 - *!estado* -> ver estado del bot
 - *!activarkick* -> guardar este grupo para avisos de Kick
@@ -74,7 +75,8 @@ const botMenuText = `*[JABESHT - BOT]*
 - *!objetivos <tema>* -> generar objetivos y Word
 - *!objetivos-pptx <tema>* -> generar objetivos y PowerPoint
 - *!s* -> crear sticker respondiendo a imagen/video
-- *!dni <numero>* -> consultar DNI 
+- *!dni <numero>* -> consultar DNI
+- *!placa <placa>* -> consulta vehicular SUNARP (enlace oficial o API autorizada) 
 - *!ping* -> probar velocidad del bot
 - *!estado* -> ver estado del bot
 - *!activarkick* -> guardar este grupo para avisos de Kick
