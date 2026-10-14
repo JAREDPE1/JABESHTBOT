@@ -17,6 +17,7 @@ const { spawn } = require("child_process");
 const { randomUUID } = require("crypto");
 const { argumentosVideoWhatsapp } = require("./lib/video-format");
 const { crearEstadoPerfil } = require("./lib/profile-uptime");
+const { normalizarPlaca, crearMensajeSunarpManual, consultarVehiculoApi, formatearRespuestaVehicular } = require("./lib/consulta-vehicular");
 const { resolverCanalYoutube, obtenerVideosYoutube, procesarVideosYoutube } = require("./lib/youtube-monitor");
 require("dotenv").config();
 
@@ -417,6 +418,33 @@ async function startBot() {
         if (/^!dni(\s|$)/.test(text)) {
             const dni = rawText.replace(/^!dni/i, "").trim();
             await consultarDniComando(sock, jid, dni);
+            return;
+        }
+
+        if (/^!(placa|sunarp)(\\s|$)/.test(text)) {
+            const entrada = rawText.replace(/^!(placa|sunarp)/i, "").trim();
+            const placa = normalizarPlaca(entrada);
+            if (!placa) {
+                await sock.sendMessage(jid, { text: "🚗 Uso: *!placa ABC123*\\nEscribe una placa peruana de 5 a 7 letras/números." });
+                return;
+            }
+            const apiUrl = process.env.VEHICULO_API_URL?.trim();
+            if (!apiUrl) {
+                await sock.sendMessage(jid, { text: crearMensajeSunarpManual(placa) });
+                return;
+            }
+            try {
+                const data = await consultarVehiculoApi(placa, {
+                    apiUrl,
+                    token: process.env.VEHICULO_API_TOKEN,
+                    httpGet: axios.get,
+                });
+                const esPrivado = !jid.endsWith("@g.us");
+                await sock.sendMessage(jid, { text: formatearRespuestaVehicular(placa, data, { esPrivado }) });
+            } catch (err) {
+                console.error("Error !placa:", err.response?.status || err.code || err.message);
+                await sock.sendMessage(jid, { text: "No pude completar la consulta automática.\\n\\n" + crearMensajeSunarpManual(placa) });
+            }
             return;
         }
 
