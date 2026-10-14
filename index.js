@@ -17,6 +17,7 @@ const { spawn } = require("child_process");
 const { randomUUID } = require("crypto");
 const { argumentosVideoWhatsapp } = require("./lib/video-format");
 const { crearEstadoPerfil } = require("./lib/profile-uptime");
+const { consultarCroma, formatearCroma, imagenCroma } = require("./lib/croma-vehicular");
 const { normalizarPlaca, crearMensajeSunarpManual, consultarVehiculoApi, formatearRespuestaVehicular } = require("./lib/consulta-vehicular");
 const { resolverCanalYoutube, obtenerVideosYoutube, procesarVideosYoutube } = require("./lib/youtube-monitor");
 require("dotenv").config();
@@ -426,6 +427,36 @@ async function startBot() {
             const placa = normalizarPlaca(entrada);
             if (!placa) {
                 await sock.sendMessage(jid, { text: "🚗 Uso: *!placa ABC123*\nEscribe una placa peruana de 5 a 7 letras/números." });
+                return;
+            }
+            const cromaKey = process.env.CROMA_API_KEY?.trim();
+            if (cromaKey) {
+                try {
+                    const datos = await consultarCroma(placa, cromaKey, axios);
+                    if (datos?.found === false) {
+                        await sock.sendMessage(jid, { text: "🚗 No se encontró información registral para la placa *" + placa + "*." });
+                        return;
+                    }
+                    let respuesta = formatearCroma(placa, datos);
+                    const privado = !jid.endsWith("@g.us");
+                    if (privado && Array.isArray(datos?.owners) && datos.owners.length) {
+                        const nombres = datos.owners.slice(0, 5).map(o => typeof o === "string" ? o : o?.name || o?.full_name).filter(Boolean);
+                        if (nombres.length) respuesta += "\\n👤 Titular(es): " + nombres.map(n => String(n).replace(/[\\r\\n*_~]/g, " ").slice(0, 150)).join(", ");
+                    }
+                    const imagen = privado ? imagenCroma(datos) : null;
+                    if (imagen) {
+                        try {
+                            await sock.sendMessage(jid, { image: { url: imagen }, caption: respuesta });
+                            return;
+                        } catch (errorImagen) {
+                            console.error("No se pudo enviar imagen Croma:", errorImagen.message);
+                        }
+                    }
+                    await sock.sendMessage(jid, { text: respuesta });
+                } catch (errorCroma) {
+                    console.error("Error API Croma:", errorCroma.response?.status || errorCroma.message);
+                    await sock.sendMessage(jid, { text: "No pude consultar la placa ahora. Revisa la clave API, el saldo y la consola del bot." });
+                }
                 return;
             }
             const apiUrl = process.env.VEHICULO_API_URL?.trim();
