@@ -108,7 +108,7 @@ function ytdlpDisponible() {
 // ─── Sesiones activas ─────────────────────────────────────────────────────────
 const sesiones = new Map();
 const conversacionesIa = new Map();
-const { iaActivaEnGrupo, configurarIaGrupo, esAdministradorGrupo, cancelarSesionesIaGrupo } = require("./lib/ai-group-controls");
+const { iaActivaEnGrupo, configurarIaGrupo, cancelarSesionesIaGrupo } = require("./lib/ai-group-controls");
 let reconectando = false;
 let kickMonitorTimer = null;
 let tiktokMonitorTimer = null;
@@ -341,33 +341,34 @@ async function startBot() {
         }
 
         if (text === "!activaria" || text === "!desactivaria" || text === "!estadoia") {
-            const grupo = jid.endsWith("@g.us");
-            if (!grupo) {
-                await sock.sendMessage(jid, { text: "La IA natural ya se puede usar por privado con *Hola IA*. Estos controles son para grupos." });
+            if (!jid.endsWith("@g.us")) {
+                await sock.sendMessage(jid, { text: "En privado puedes conversar con *Hola IA*. Estos comandos se usan en grupos." });
                 return;
             }
             if (text === "!estadoia") {
-                await sock.sendMessage(jid, { text: iaActivaEnGrupo(botConfig, jid) ? "🤖 IA natural activada en este grupo." : "🔕 IA natural desactivada en este grupo. Usa !activaria si eres administrador." });
+                await sock.sendMessage(jid, {
+                    text: iaActivaEnGrupo(botConfig, jid)
+                        ? "🤖 IA natural activada en este grupo."
+                        : "🔕 IA natural desactivada. Cualquier integrante puede usar *!activaria*."
+                });
                 return;
             }
+            // Cualquier integrante del grupo puede cambiar este estado.
+            const activar = text === "!activaria";
+            configurarIaGrupo(botConfig, jid, activar);
             try {
-                const metadata = await sock.groupMetadata(jid);
-                const autor = msg.key.participant || msg.key.remoteJid;
-                if (!esAdministradorGrupo(metadata, autor)) {
-                    await sock.sendMessage(jid, { text: "🔒 Solo los administradores del grupo pueden activar o desactivar la IA." });
-                    return;
-                }
-                const activar = text === "!activaria";
-                configurarIaGrupo(botConfig, jid, activar);
                 guardarConfig(botConfig);
-                if (!activar) cancelarSesionesIaGrupo(conversacionesIa, jid);
-                await sock.sendMessage(jid, { text: activar ?
-                    "✅ IA natural activada. Escribe *Hola IA* para conversar. Los comandos siguen independientes." :
-                    "🔕 IA natural desactivada en este grupo. Los comandos tradicionales siguen funcionando." });
             } catch (err) {
-                console.error("Error gestionando IA en grupo:", err.message);
-                await sock.sendMessage(jid, { text: "No pude comprobar los permisos del grupo. Intenta otra vez." });
+                console.error("No se pudo guardar el estado IA:", err.message);
+                await sock.sendMessage(jid, { text: "No pude guardar el cambio de IA en el servidor." });
+                return;
             }
+            if (!activar) cancelarSesionesIaGrupo(conversacionesIa, jid);
+            await sock.sendMessage(jid, {
+                text: activar
+                    ? "✅ IA natural activada por un integrante. Escribe *Hola IA* para conversar."
+                    : "🔕 IA natural desactivada en este grupo. Los comandos tradicionales siguen funcionando."
+            });
             return;
         }
 
