@@ -16,6 +16,7 @@ const axios    = require("axios");
 const { spawn } = require("child_process");
 const { randomUUID } = require("crypto");
 const { argumentosVideoWhatsapp } = require("./lib/video-format");
+const { enviarVideoConAlternativa } = require("./lib/video-send");
 const { crearEstadoPerfil } = require("./lib/profile-uptime");
 const { consultarCroma, formatearCroma, imagenCroma } = require("./lib/croma-vehicular");
 const { normalizarPlaca, crearMensajeSunarpManual, consultarVehiculoApi, formatearRespuestaVehicular } = require("./lib/consulta-vehicular");
@@ -1520,24 +1521,12 @@ async function descargarVideo(sock, jid, url, title) {
         }
         await sock.sendMessage(jid, { text: "⏳ Preparando el video para reproducirlo en WhatsApp..." });
         await runProceso(FFMPEG, argumentosVideoWhatsapp(videoFile, archivo), 10 * 60_000);
-        const sizeMB = fs.statSync(archivo).size / (1024 * 1024);
-        if (sizeMB === 0) throw new Error("El video convertido está vacío");
-        if (sizeMB > 60) {
-            await sock.sendMessage(jid, { 
-                text: `⚠️ El video pesa ${sizeMB.toFixed(1)}MB (límite WhatsApp 64MB). Te envío el MP3.` 
+        const envio = await enviarVideoConAlternativa(sock, jid, archivo, title);
+        if (envio.modo !== "demasiado_grande") {
+            await sock.sendMessage(jid, {
+                text: `✅ *${title}*\n📦 ${envio.tamano} MB\n📎 Formato: ${envio.modo === "documento" ? "Archivo MP4" : "Video normal"}`,
             });
-            limpiarArchivosGenerados(base);
-            // Obtener duración real del archivo y enviar audio
-            await descargarAudio(sock, jid, url, title, 0);
-            return;
         }
-
-        await sock.sendMessage(jid, {
-            video: fs.readFileSync(archivo),
-            mimetype: "video/mp4",
-            fileName: `${title}.mp4`,
-        });
-        await sock.sendMessage(jid, { text: `✅ *${title}*\n📦 ${sizeMB.toFixed(1)}MB` });
 
     } catch (err) {
         console.error("Error descargarVideo:", err.message);
