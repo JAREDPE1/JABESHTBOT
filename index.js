@@ -864,20 +864,20 @@ async function procesarConversacionNatural(sock, jid, msg, texto) {
             try {
                 if (wordPedido || pdfPedido) {
                     word = await crearDocumentoWord(doc, TMP);
-                    if (wordPedido) await sock.sendMessage(jid, { document: { url: word.filePath }, mimetype: word.mimetype, fileName: word.fileName });
+                    if (wordPedido && !sesion.cancelado) await sock.sendMessage(jid, { document: { url: word.filePath }, mimetype: word.mimetype, fileName: word.fileName });
                     if (pdfPedido) {
                         try {
                             pdf = await crearPdfDesdeWord(word, TMP);
-                            await sock.sendMessage(jid, { document: { url: pdf.filePath }, mimetype: pdf.mimetype, fileName: pdf.fileName });
+                            if (!sesion.cancelado) await sock.sendMessage(jid, { document: { url: pdf.filePath }, mimetype: pdf.mimetype, fileName: pdf.fileName });
                         } catch (e) {
                             console.error("Error creando PDF:", e.message);
-                            await sock.sendMessage(jid, { text: "No pude convertir a PDF. Revisa LibreOffice en Linux Mint." });
+                            if (!sesion.cancelado) await sock.sendMessage(jid, { text: "No pude convertir a PDF. Revisa LibreOffice en Linux Mint." });
                         }
                     }
                 }
                 if (pptxPedido) {
                     pptx = await crearDocumentoPptx(doc, TMP);
-                    await sock.sendMessage(jid, { document: { url: pptx.filePath }, mimetype: pptx.mimetype, fileName: pptx.fileName });
+                    if (!sesion.cancelado) await sock.sendMessage(jid, { document: { url: pptx.filePath }, mimetype: pptx.mimetype, fileName: pptx.fileName });
                 }
             } finally {
                 for (const archivo of [word, pdf, pptx]) {
