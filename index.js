@@ -108,6 +108,7 @@ function ytdlpDisponible() {
 // ─── Sesiones activas ─────────────────────────────────────────────────────────
 const sesiones = new Map();
 const conversacionesIa = new Map();
+const { iaActivaEnGrupo, configurarIaGrupo, esAdministradorGrupo, cancelarSesionesIaGrupo } = require("./lib/ai-group-controls");
 let reconectando = false;
 let kickMonitorTimer = null;
 let tiktokMonitorTimer = null;
@@ -337,6 +338,37 @@ async function startBot() {
 
         if (!/^[!.]/.test(text) && !sesiones.has(jid)) {
             if (await procesarConversacionNatural(sock, jid, msg, rawText)) return;
+        }
+
+        if (text === "!activaria" || text === "!desactivaria" || text === "!estadoia") {
+            const grupo = jid.endsWith("@g.us");
+            if (!grupo) {
+                await sock.sendMessage(jid, { text: "La IA natural ya se puede usar por privado con *Hola IA*. Estos controles son para grupos." });
+                return;
+            }
+            if (text === "!estadoia") {
+                await sock.sendMessage(jid, { text: iaActivaEnGrupo(botConfig, jid) ? "🤖 IA natural activada en este grupo." : "🔕 IA natural desactivada en este grupo. Usa !activaria si eres administrador." });
+                return;
+            }
+            try {
+                const metadata = await sock.groupMetadata(jid);
+                const autor = msg.key.participant || msg.key.remoteJid;
+                if (!esAdministradorGrupo(metadata, autor)) {
+                    await sock.sendMessage(jid, { text: "🔒 Solo los administradores del grupo pueden activar o desactivar la IA." });
+                    return;
+                }
+                const activar = text === "!activaria";
+                configurarIaGrupo(botConfig, jid, activar);
+                guardarConfig(botConfig);
+                if (!activar) cancelarSesionesIaGrupo(conversacionesIa, jid);
+                await sock.sendMessage(jid, { text: activar ?
+                    "✅ IA natural activada. Escribe *Hola IA* para conversar. Los comandos siguen independientes." :
+                    "🔕 IA natural desactivada en este grupo. Los comandos tradicionales siguen funcionando." });
+            } catch (err) {
+                console.error("Error gestionando IA en grupo:", err.message);
+                await sock.sendMessage(jid, { text: "No pude comprobar los permisos del grupo. Intenta otra vez." });
+            }
+            return;
         }
 
         // ── Sesión activa ────────────────────────────────────────────────────
@@ -785,6 +817,7 @@ async function startBot() {
 
 
 async function procesarConversacionNatural(sock, jid, msg, texto) {
+    if (jid.endsWith("@g.us") && !iaActivaEnGrupo(botConfig, jid)) return false;
     const clave = jid.endsWith("@g.us") ? jid + ":" + (msg.key.participant || "desconocido") : jid;
     const sesionActual = conversacionesIa.get(clave);
     const activo = sesionActual && sesionActual.expira > Date.now();
@@ -805,6 +838,7 @@ async function procesarConversacionNatural(sock, jid, msg, texto) {
     }
     sesion.expira = Date.now() + 20 * 60_000;
     sesion.ocupado = true;
+    sesion.cancelado = false;
     conversacionesIa.set(clave, sesion);
     try {
         if (/^(adios ia|salir ia|terminar ia)$/i.test(texto.trim())) {
@@ -822,6 +856,7 @@ async function procesarConversacionNatural(sock, jid, msg, texto) {
             }
             await sock.sendMessage(jid, { text: "📚 Preparando tu documento. Puede tardar un momento..." });
             const doc = await generarDocumentoAcademico(tipo, texto.slice(0, 600));
+            if (sesion.cancelado) return true;
             const wordPedido = /\b(word|docx)\b/.test(normal);
             const pdfPedido = /\bpdf\b/.test(normal);
             const pptxPedido = /\b(powerpoint|pptx)\b/.test(normal);
@@ -855,6 +890,7 @@ async function procesarConversacionNatural(sock, jid, msg, texto) {
             const contexto = sesion.historial.map(x => x.rol + ": " + x.texto).join("\n");
             const pregunta = contexto ? "Conversación anterior:\n" + contexto + "\nUsuario: " + texto : texto;
             const respuesta = await responderPreguntaIa(pregunta);
+            if (sesion.cancelado) return true;
             await enviarTextoLargo(sock, jid, respuesta);
             sesion.historial.push({ rol: "Usuario", texto: texto.slice(0, 600) });
             sesion.historial.push({ rol: "Asistente", texto: respuesta.slice(0, 1000) });
@@ -862,7 +898,7 @@ async function procesarConversacionNatural(sock, jid, msg, texto) {
         }
     } catch (err) {
         console.error("Error conversacion natural:", obtenerDetalleErrorIa(err));
-        await sock.sendMessage(jid, { text: crearMensajeErrorIa(err) });
+        if (!sesion.cancelado) await sock.sendMessage(jid, { text: crearMensajeErrorIa(err) });
     } finally {
         sesion.ocupado = false;
     }
