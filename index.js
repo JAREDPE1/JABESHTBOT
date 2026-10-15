@@ -108,6 +108,7 @@ function ytdlpDisponible() {
 // ─── Sesiones activas ─────────────────────────────────────────────────────────
 const sesiones = new Map();
 const conversacionesIa = new Map();
+const { detectarAyudaComando, GUIA_COMANDOS } = require("./lib/bot-command-help");
 const { iaActivaEnGrupo, configurarIaGrupo, cancelarSesionesIaGrupo } = require("./lib/ai-group-controls");
 let reconectando = false;
 let kickMonitorTimer = null;
@@ -847,6 +848,11 @@ async function procesarConversacionNatural(sock, jid, msg, texto) {
             await sock.sendMessage(jid, { text: "Conversación terminada. 👋" });
             return true;
         }
+        const ayuda = detectarAyudaComando(texto);
+        if (ayuda) {
+            if (!sesion.cancelado) await sock.sendMessage(jid, { text: ayuda });
+            return true;
+        }
         const normal = texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
         const pideArchivo = /\b(pdf|word|docx|powerpoint|pptx)\b/.test(normal) &&
             /\b(hazme|crea|creame|genera|generame|prepara|preparame|enviame|mandame|ponlo|quiero|necesito|redacta)\b/.test(normal);
@@ -890,7 +896,7 @@ async function procesarConversacionNatural(sock, jid, msg, texto) {
         } else {
             const contexto = sesion.historial.map(x => x.rol + ": " + x.texto).join("\n");
             const pregunta = contexto ? "Conversación anterior:\n" + contexto + "\nUsuario: " + texto : texto;
-            const respuesta = await responderPreguntaIa(pregunta);
+            const respuesta = await responderPreguntaIa("Ayuda de comandos del bot (si corresponde):\n" + GUIA_COMANDOS + "\n\n" + pregunta);
             if (sesion.cancelado) return true;
             await enviarTextoLargo(sock, jid, respuesta);
             sesion.historial.push({ rol: "Usuario", texto: texto.slice(0, 600) });
