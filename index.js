@@ -401,6 +401,10 @@ async function startBot() {
             }
             ultimosPdf.delete(userKey);
         }
+        if(iaPermitida && !/^[!.]/.test(text) && buscaWeb(rawText) && process.env.WEB_SEARCH_ENABLED!=="true") {
+            await sock.sendMessage(jid,{text:"🌐 La búsqueda web está desactivada. Configura WEB_SEARCH_ENABLED=true para obtener respuestas verificadas y actuales."});
+            return;
+        }
         if(iaPermitida && !/^[!.]/.test(text) && buscaWeb(rawText) && process.env.WEB_SEARCH_ENABLED==="true") {
             try {
                 const respuesta=await indicadorEscritura.ejecutar(sock,jid,()=>consultarWeb(buscaWeb(rawText),{apiKey:process.env.GEMINI_API_KEY,model:process.env.GEMINI_WEB_MODEL||"gemini-2.5-flash"}));
