@@ -826,6 +826,10 @@ async function procesarConversacionNatural(sock, jid, msg, texto) {
     const llamado = /^(hola|hey|oye|buenas|que tal|buenos dias|buenas tardes)[\s,!¡]*(ia|jabesht|bot)\b/i.test(texto) || /^(ia|jabesht)[,: ]/i.test(texto);
     const ayudaDirecta = detectarAyudaComando(texto);
     if (!activo && !llamado && !ayudaDirecta) return false;
+    if (ayudaDirecta && !activo) {
+        await sock.sendMessage(jid, { text: ayudaDirecta });
+        return true;
+    }
     if (!hasAiConfig()) {
         await sock.sendMessage(jid, { text: "Configura la API de IA en el archivo .env para conversar." });
         return true;
