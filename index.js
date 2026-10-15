@@ -108,6 +108,9 @@ function ytdlpDisponible() {
 // ─── Sesiones activas ─────────────────────────────────────────────────────────
 const sesiones = new Map();
 const conversacionesIa = new Map();
+const { debeResponderNatural } = require("./lib/ai-auto-reply");
+const { crearIndicadorEscritura } = require("./lib/typing-presence");
+const indicadorEscritura = crearIndicadorEscritura();
 const { detectarSolicitudImagen, imageGenerationEnabled, crearLimitadorImagenes, generarImagenGemini, mensajeErrorImagen } = require("./lib/ai-image-service");
 const permitirImagen = crearLimitadorImagenes(3);
 const { detectarAyudaComando, GUIA_COMANDOS } = require("./lib/bot-command-help");
@@ -339,13 +342,13 @@ async function startBot() {
         if (!text) return;
         console.log(`📩 [${jid.split("@")[0]}]: ${text}`);
 
-        if (!/^[!.]/.test(text) && !sesiones.has(jid)) {
-            if (await procesarConversacionNatural(sock, jid, msg, rawText)) return;
+        if (debeResponderNatural({ texto: rawText, jid, config: botConfig, sesionDescargaActiva: sesiones.has(jid) })) {
+            if (await indicadorEscritura.ejecutar(sock, jid, () => procesarConversacionNatural(sock, jid, msg, rawText))) return;
         }
 
         if (text === "!activaria" || text === "!desactivaria" || text === "!estadoia") {
             if (!jid.endsWith("@g.us")) {
-                await sock.sendMessage(jid, { text: "En privado puedes conversar con *Hola IA*. Estos comandos se usan en grupos." });
+                await sock.sendMessage(jid, { text: "En privado la IA responde directamente a tus mensajes. Estos comandos se usan en grupos." });
                 return;
             }
             if (text === "!estadoia") {
@@ -369,7 +372,7 @@ async function startBot() {
             if (!activar) cancelarSesionesIaGrupo(conversacionesIa, jid);
             await sock.sendMessage(jid, {
                 text: activar
-                    ? "✅ IA natural activada por un integrante. Escribe *Hola IA* para conversar."
+                    ? "✅ IA natural activada por un integrante. Escribe tu pregunta directamente, sin comandos."
                     : "🔕 IA natural desactivada en este grupo. Los comandos tradicionales siguen funcionando."
             });
             return;
@@ -825,14 +828,8 @@ async function procesarConversacionNatural(sock, jid, msg, texto) {
     const clave = jid.endsWith("@g.us") ? jid + ":" + (msg.key.participant || "desconocido") : jid;
     const sesionActual = conversacionesIa.get(clave);
     const activo = sesionActual && sesionActual.expira > Date.now();
-    const llamado = /^(hola|hey|oye|buenas|que tal|buenos dias|buenas tardes)[\s,!¡]*(ia|jabesht|bot)\b/i.test(texto) || /^(ia|jabesht)[,: ]/i.test(texto);
     const ayudaDirecta = detectarAyudaComando(texto);
     const peticionImagen = detectarSolicitudImagen(texto);
-    if (!activo && !llamado && !ayudaDirecta && !peticionImagen) return false;
-    if (ayudaDirecta && !activo) {
-        await sock.sendMessage(jid, { text: ayudaDirecta });
-        return true;
-    }
     if (!hasAiConfig()) {
         await sock.sendMessage(jid, { text: "Configura la API de IA en el archivo .env para conversar." });
         return true;
