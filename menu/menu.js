@@ -13,6 +13,10 @@ const startMenuText = `Hola, soy *[JABESHT - BOT]*
 - *!lista <nombre>* -> elegir entre 8 opciones
 --UTILIDADES--
 - *!ia <pregunta>* -> responder con inteligencia artificial
+- *Fotos/PDF* -> envía y pregunta directamente (Gemini)
+- *!buscar <pregunta>* -> buscar en la web si está habilitada
+- *!reconocer* -> responde a un audio de música
+- *recuerda que ...* / *qué recuerdas de mí* / *olvida todo* -> memoria privada
 - *Conversacion IA* -> escribe directamente sin comando; en grupos requiere !activaria
 - *!activaria* -> habilitar IA natural en el grupo (cualquier integrante)
 - *!desactivaria* -> deshabilitar IA natural en el grupo (cualquier integrante)
@@ -64,6 +68,10 @@ const botMenuText = `*[JABESHT - BOT]*
 - *!lista <nombre>* -> muestra 8 opciones para elegir
 --UTILIDADES--
 - *!ia <pregunta>* -> responder con inteligencia artificial
+- *Fotos/PDF* -> envía y pregunta directamente (Gemini)
+- *!buscar <pregunta>* -> buscar en la web si está habilitada
+- *!reconocer* -> responde a un audio de música
+- *recuerda que ...* / *qué recuerdas de mí* / *olvida todo* -> memoria privada
 - *Conversacion IA* -> escribe directamente sin comando; en grupos requiere !activaria
 - *!activaria* -> habilitar IA natural en el grupo (cualquier integrante)
 - *!desactivaria* -> deshabilitar IA natural en el grupo (cualquier integrante)
