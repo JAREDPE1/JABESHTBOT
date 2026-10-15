@@ -14,8 +14,8 @@ const startMenuText = `Hola, soy *[JABESHT - BOT]*
 --UTILIDADES--
 - *!ia <pregunta>* -> responder con inteligencia artificial
 - *Hola IA* -> conversar naturalmente (en grupos requiere activacion)
-- *!activaria* -> habilitar IA natural en el grupo (solo admins)
-- *!desactivaria* -> deshabilitar IA natural en el grupo (solo admins)
+- *!activaria* -> habilitar IA natural en el grupo (cualquier integrante)
+- *!desactivaria* -> deshabilitar IA natural en el grupo (cualquier integrante)
 - *!estadoia* -> consultar estado de IA natural en este grupo
 - *!monografia <tema>* -> generar monografia y Word
 - *!monografia-pptx <tema>* -> generar monografia y PowerPoint
@@ -65,8 +65,8 @@ const botMenuText = `*[JABESHT - BOT]*
 --UTILIDADES--
 - *!ia <pregunta>* -> responder con inteligencia artificial
 - *Hola IA* -> conversar naturalmente (en grupos requiere activacion)
-- *!activaria* -> habilitar IA natural en el grupo (solo admins)
-- *!desactivaria* -> deshabilitar IA natural en el grupo (solo admins)
+- *!activaria* -> habilitar IA natural en el grupo (cualquier integrante)
+- *!desactivaria* -> deshabilitar IA natural en el grupo (cualquier integrante)
 - *!estadoia* -> consultar estado de IA natural en este grupo
 - *!monografia <tema>* -> generar monografia y Word
 - *!monografia-pptx <tema>* -> generar monografia y PowerPoint
