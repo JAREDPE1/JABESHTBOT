@@ -108,6 +108,13 @@ function ytdlpDisponible() {
 // ─── Sesiones activas ─────────────────────────────────────────────────────────
 const sesiones = new Map();
 const conversacionesIa = new Map();
+const { buscarMediaWhatsApp, analizarMediaGemini } = require("./lib/ai-media-understanding");
+const { buscaWeb, consultarWeb } = require("./lib/web-grounding");
+const { crearMemoria, detectarMemoria } = require("./lib/ai-memory");
+const { reconocerMusica } = require("./lib/music-recognition");
+const recuerdosIa = crearMemoria(DATA_DIR);
+const ultimosPdf = new Map();
+
 const { debeResponderNatural } = require("./lib/ai-auto-reply");
 const { crearIndicadorEscritura } = require("./lib/typing-presence");
 const indicadorEscritura = crearIndicadorEscritura();
@@ -339,8 +346,92 @@ async function startBot() {
         ).trim();
         const text = rawText.toLowerCase();
 
-        if (!text) return;
+        const mediaEntrada = buscarMediaWhatsApp(msg, ["image", "pdf"]);
+        if (!text && !mediaEntrada) return;
         console.log(`📩 [${jid.split("@")[0]}]: ${text}`);
+
+        const iaPermitida = !jid.endsWith("@g.us") || iaActivaEnGrupo(botConfig, jid);
+        const userKey = jid.endsWith("@g.us") ? jid + ":" + (msg.key.participant || "") : jid;
+        if (text === "!reconocer" && iaPermitida) {
+            const media = buscarMediaWhatsApp(msg, ["audio"]);
+            if (!media) {
+                await sock.sendMessage(jid, { text: "Responde a un audio de música con *!reconocer*." });
+                return;
+            }
+            try {
+                if (!process.env.AUDD_API_TOKEN) {
+                    await sock.sendMessage(jid, { text: "Reconocimiento musical no configurado. Falta AUDD_API_TOKEN en .env." });
+                    return;
+                }
+                const buffer = await downloadMediaMessage(media.mensaje, "buffer", {}, {logger:pino({level:"silent"}), reuploadRequest:sock.updateMediaMessage});
+                const respuesta = await reconocerMusica(buffer, {token:process.env.AUDD_API_TOKEN});
+                await sock.sendMessage(jid, {text:respuesta});
+            } catch (e) {
+                console.error("!reconocer:",e.message);
+                await sock.sendMessage(jid,{text:"No pude reconocer la canción. Revisa el tamaño del audio y la API AudD."});
+            }
+            return;
+        }
+        if (iaPermitida && mediaEntrada && !/^[!.]/.test(text) && !sesiones.has(jid)) {
+            await indicadorEscritura.ejecutar(sock,jid,async()=>{
+                try {
+                    if (!process.env.GEMINI_API_KEY) {
+                        await sock.sendMessage(jid,{text:"La lectura de fotos y PDF requiere GEMINI_API_KEY."});
+                        return;
+                    }
+                    const buffer=await downloadMediaMessage(mediaEntrada.mensaje,"buffer",{}, {logger:pino({level:"silent"}),reuploadRequest:sock.updateMediaMessage});
+                    const respuesta=await analizarMediaGemini({buffer,tipo:mediaEntrada.tipo,mime:mediaEntrada.mime,pregunta:rawText || undefined,apiKey:process.env.GEMINI_API_KEY,model:process.env.GEMINI_VISION_MODEL || "gemini-2.5-flash-lite"});
+                    if(mediaEntrada.tipo==="pdf") ultimosPdf.set(userKey,{buffer,mime:mediaEntrada.mime,expira:Date.now()+15*60_000});
+                    await enviarTextoLargo(sock,jid,respuesta);
+                } catch(e) {
+                    console.error("Error vision/pdf:",e.message);
+                    await sock.sendMessage(jid,{text:"No pude analizar ese archivo. Acepto fotos JPG/PNG/WebP de hasta 8 MB y PDF de hasta 10 MB. Revisa la compatibilidad del modelo Gemini."});
+                }
+            });
+            return;
+        }
+        if(iaPermitida && !/^[!.]/.test(text) && /(?:este pdf|el pdf|este documento|del documento|ese archivo)/i.test(text) && ultimosPdf.has(userKey)) {
+            const p=ultimosPdf.get(userKey);
+            if(Date.now()<p.expira) {
+                try {
+                    const respuesta=await indicadorEscritura.ejecutar(sock,jid,()=>analizarMediaGemini({buffer:p.buffer,tipo:"pdf",mime:p.mime,pregunta:rawText,apiKey:process.env.GEMINI_API_KEY,model:process.env.GEMINI_VISION_MODEL||"gemini-2.5-flash-lite"}));
+                    await enviarTextoLargo(sock,jid,respuesta);
+                }catch(e){console.error("PDF followup",e.message);await sock.sendMessage(jid,{text:"No pude revisar el PDF anterior. Envíalo nuevamente."});}
+                return;
+            }
+            ultimosPdf.delete(userKey);
+        }
+        if(iaPermitida && !/^[!.]/.test(text) && buscaWeb(rawText) && process.env.WEB_SEARCH_ENABLED==="true") {
+            try {
+                const respuesta=await indicadorEscritura.ejecutar(sock,jid,()=>consultarWeb(buscaWeb(rawText),{apiKey:process.env.GEMINI_API_KEY,model:process.env.GEMINI_WEB_MODEL||"gemini-2.5-flash"}));
+                await enviarTextoLargo(sock,jid,respuesta);
+            }catch(e){console.error("Web grounding",e.message);await sock.sendMessage(jid,{text:"La búsqueda web no está disponible. Revisa cuota, permisos o modelo Gemini."});}
+            return;
+        }
+        if(/^!buscar(\s|$)/i.test(text)) {
+            if(process.env.WEB_SEARCH_ENABLED!=="true"){await sock.sendMessage(jid,{text:"La búsqueda web está desactivada. Configura WEB_SEARCH_ENABLED=true."});return;}
+            try {
+                const respuesta=await indicadorEscritura.ejecutar(sock,jid,()=>consultarWeb(rawText.replace(/^!buscar\s*/i,""),{apiKey:process.env.GEMINI_API_KEY,model:process.env.GEMINI_WEB_MODEL||"gemini-2.5-flash"}));
+                await enviarTextoLargo(sock,jid,respuesta);
+            }catch(e){console.error("!buscar",e.message);await sock.sendMessage(jid,{text:"No pude buscar en Internet ahora."});}
+            return;
+        }
+        if(iaPermitida && !sesiones.has(jid)) {
+            const ordenMemoria=detectarMemoria(rawText);
+            if(ordenMemoria) {
+                if(ordenMemoria.tipo==="guardar"){
+                    recuerdosIa.anotar(userKey,ordenMemoria.valor);
+                    await sock.sendMessage(jid,{text:"🧠 Guardé esa preferencia en tu memoria personal. Puedes borrarla con *olvida todo*."});
+                }else if(ordenMemoria.tipo==="borrar"){
+                    recuerdosIa.olvidar(userKey);
+                    await sock.sendMessage(jid,{text:"🗑️ Eliminé los recuerdos guardados de esta conversación."});
+                }else{
+                    const notas=recuerdosIa.listar(userKey);
+                    await sock.sendMessage(jid,{text:notas.length?"🧠 Recuerdo:\n"+notas.map(x=>"• "+x).join("\n"):"Todavía no he guardado ningún recuerdo tuyo."});
+                }
+                return;
+            }
+        }
 
         if (debeResponderNatural({ texto: rawText, jid, config: botConfig, sesionDescargaActiva: sesiones.has(jid) })) {
             if (await indicadorEscritura.ejecutar(sock, jid, () => procesarConversacionNatural(sock, jid, msg, rawText))) return;
@@ -934,7 +1025,9 @@ async function procesarConversacionNatural(sock, jid, msg, texto) {
             sesion.historial = [];
         } else {
             const contexto = sesion.historial.map(x => x.rol + ": " + x.texto).join("\n");
-            const pregunta = contexto ? "Conversación anterior:\n" + contexto + "\nUsuario: " + texto : texto;
+            const notas = recuerdosIa.listar(clave);
+            const contextoConMemoria = notas.length ? "Preferencias guardadas voluntariamente por este usuario:\n" + notas.join("\n") + "\n" : "";
+            const pregunta = contextoConMemoria + (contexto ? "Conversación anterior:\n" + contexto + "\nUsuario: " + texto : texto);
             const respuesta = await responderPreguntaIa("Ayuda de comandos del bot (si corresponde):\n" + GUIA_COMANDOS + "\n\n" + pregunta);
             if (sesion.cancelado) return true;
             await enviarTextoLargo(sock, jid, respuesta);
