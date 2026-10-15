@@ -108,6 +108,8 @@ function ytdlpDisponible() {
 // ─── Sesiones activas ─────────────────────────────────────────────────────────
 const sesiones = new Map();
 const conversacionesIa = new Map();
+const { detectarSolicitudImagen, imageGenerationEnabled, crearLimitadorImagenes, generarImagenGemini, mensajeErrorImagen } = require("./lib/ai-image-service");
+const permitirImagen = crearLimitadorImagenes(3);
 const { detectarAyudaComando, GUIA_COMANDOS } = require("./lib/bot-command-help");
 const { iaActivaEnGrupo, configurarIaGrupo, cancelarSesionesIaGrupo } = require("./lib/ai-group-controls");
 let reconectando = false;
@@ -825,7 +827,8 @@ async function procesarConversacionNatural(sock, jid, msg, texto) {
     const activo = sesionActual && sesionActual.expira > Date.now();
     const llamado = /^(hola|hey|oye|buenas|que tal|buenos dias|buenas tardes)[\s,!¡]*(ia|jabesht|bot)\b/i.test(texto) || /^(ia|jabesht)[,: ]/i.test(texto);
     const ayudaDirecta = detectarAyudaComando(texto);
-    if (!activo && !llamado && !ayudaDirecta) return false;
+    const peticionImagen = detectarSolicitudImagen(texto);
+    if (!activo && !llamado && !ayudaDirecta && !peticionImagen) return false;
     if (ayudaDirecta && !activo) {
         await sock.sendMessage(jid, { text: ayudaDirecta });
         return true;
@@ -856,6 +859,40 @@ async function procesarConversacionNatural(sock, jid, msg, texto) {
         const ayuda = ayudaDirecta;
         if (ayuda) {
             if (!sesion.cancelado) await sock.sendMessage(jid, { text: ayuda });
+            return true;
+        }
+        if (peticionImagen) {
+            if (!imageGenerationEnabled()) {
+                await sock.sendMessage(jid, { text: "🎨 La generación de imágenes todavía está desactivada. El administrador debe configurar IMAGE_GENERATION_ENABLED=true y habilitar el acceso de Gemini a modelos de imágenes." });
+                return true;
+            }
+            const imageKey = process.env.GEMINI_IMAGE_API_KEY || process.env.GEMINI_API_KEY;
+            if (!imageKey) {
+                await sock.sendMessage(jid, { text: "⚠️ Falta configurar la clave Gemini para generar imágenes." });
+                return true;
+            }
+            if (!permitirImagen(clave)) {
+                await sock.sendMessage(jid, { text: "⏳ Alcanzaste el límite de 3 imágenes por hora. Intenta más tarde." });
+                return true;
+            }
+            await sock.sendMessage(jid, { text: "🎨 Estoy creando tu imagen con Gemini. Esto puede tardar unos segundos..." });
+            try {
+                const imagen = await generarImagenGemini(peticionImagen, {
+                    apiKey: imageKey,
+                    model: process.env.GEMINI_IMAGE_MODEL || undefined,
+                    post: axios.post,
+                });
+                if (!sesion.cancelado) {
+                    await sock.sendMessage(jid, {
+                        image: imagen.buffer,
+                        mimetype: imagen.mimetype,
+                        caption: "🎨 Imagen creada con Gemini por JABESHTBOT",
+                    });
+                }
+            } catch (errorImagen) {
+                console.error("Error generando imagen Gemini:", errorImagen.response?.status || errorImagen.message);
+                if (!sesion.cancelado) await sock.sendMessage(jid, { text: mensajeErrorImagen(errorImagen) });
+            }
             return true;
         }
         const normal = texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
