@@ -107,6 +107,9 @@ function ytdlpDisponible() {
 
 // ─── Sesiones activas ─────────────────────────────────────────────────────────
 const sesiones = new Map();
+const conversacionesIa = new Map();
+const { detectarAyudaComando, GUIA_COMANDOS } = require("./lib/bot-command-help");
+const { iaActivaEnGrupo, configurarIaGrupo, cancelarSesionesIaGrupo } = require("./lib/ai-group-controls");
 let reconectando = false;
 let kickMonitorTimer = null;
 let tiktokMonitorTimer = null;
@@ -333,6 +336,42 @@ async function startBot() {
 
         if (!text) return;
         console.log(`📩 [${jid.split("@")[0]}]: ${text}`);
+
+        if (!/^[!.]/.test(text) && !sesiones.has(jid)) {
+            if (await procesarConversacionNatural(sock, jid, msg, rawText)) return;
+        }
+
+        if (text === "!activaria" || text === "!desactivaria" || text === "!estadoia") {
+            if (!jid.endsWith("@g.us")) {
+                await sock.sendMessage(jid, { text: "En privado puedes conversar con *Hola IA*. Estos comandos se usan en grupos." });
+                return;
+            }
+            if (text === "!estadoia") {
+                await sock.sendMessage(jid, {
+                    text: iaActivaEnGrupo(botConfig, jid)
+                        ? "🤖 IA natural activada en este grupo."
+                        : "🔕 IA natural desactivada. Cualquier integrante puede usar *!activaria*."
+                });
+                return;
+            }
+            // Cualquier integrante del grupo puede cambiar este estado.
+            const activar = text === "!activaria";
+            configurarIaGrupo(botConfig, jid, activar);
+            try {
+                guardarConfig(botConfig);
+            } catch (err) {
+                console.error("No se pudo guardar el estado IA:", err.message);
+                await sock.sendMessage(jid, { text: "No pude guardar el cambio de IA en el servidor." });
+                return;
+            }
+            if (!activar) cancelarSesionesIaGrupo(conversacionesIa, jid);
+            await sock.sendMessage(jid, {
+                text: activar
+                    ? "✅ IA natural activada por un integrante. Escribe *Hola IA* para conversar."
+                    : "🔕 IA natural desactivada en este grupo. Los comandos tradicionales siguen funcionando."
+            });
+            return;
+        }
 
         // ── Sesión activa ────────────────────────────────────────────────────
         if (sesiones.has(jid)) {
@@ -776,6 +815,106 @@ async function startBot() {
             return;
         }
     });
+}
+
+
+async function procesarConversacionNatural(sock, jid, msg, texto) {
+    if (jid.endsWith("@g.us") && !iaActivaEnGrupo(botConfig, jid)) return false;
+    const clave = jid.endsWith("@g.us") ? jid + ":" + (msg.key.participant || "desconocido") : jid;
+    const sesionActual = conversacionesIa.get(clave);
+    const activo = sesionActual && sesionActual.expira > Date.now();
+    const llamado = /^(hola|hey|oye|buenas|que tal|buenos dias|buenas tardes)[\s,!¡]*(ia|jabesht|bot)\b/i.test(texto) || /^(ia|jabesht)[,: ]/i.test(texto);
+    const ayudaDirecta = detectarAyudaComando(texto);
+    if (!activo && !llamado && !ayudaDirecta) return false;
+    if (ayudaDirecta && !activo) {
+        await sock.sendMessage(jid, { text: ayudaDirecta });
+        return true;
+    }
+    if (!hasAiConfig()) {
+        await sock.sendMessage(jid, { text: "Configura la API de IA en el archivo .env para conversar." });
+        return true;
+    }
+    if (texto.length > 3000) {
+        await sock.sendMessage(jid, { text: "El mensaje es demasiado largo. Máximo 3000 caracteres." });
+        return true;
+    }
+    const sesion = activo ? sesionActual : { expira: 0, historial: [], ocupado: false };
+    if (sesion.ocupado) {
+        await sock.sendMessage(jid, { text: "⏳ Espera, todavía estoy preparando tu respuesta." });
+        return true;
+    }
+    sesion.expira = Date.now() + 20 * 60_000;
+    sesion.ocupado = true;
+    sesion.cancelado = false;
+    conversacionesIa.set(clave, sesion);
+    try {
+        if (/^(adios ia|salir ia|terminar ia)$/i.test(texto.trim())) {
+            conversacionesIa.delete(clave);
+            await sock.sendMessage(jid, { text: "Conversación terminada. 👋" });
+            return true;
+        }
+        const ayuda = ayudaDirecta;
+        if (ayuda) {
+            if (!sesion.cancelado) await sock.sendMessage(jid, { text: ayuda });
+            return true;
+        }
+        const normal = texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        const pideArchivo = /\b(pdf|word|docx|powerpoint|pptx)\b/.test(normal) &&
+            /\b(hazme|crea|creame|genera|generame|prepara|preparame|enviame|mandame|ponlo|quiero|necesito|redacta)\b/.test(normal);
+        if (pideArchivo) {
+            let tipo = "resumen";
+            for (const t of ["monografia", "ensayo", "resumen", "exposicion", "introduccion", "conclusion", "objetivos"]) {
+                if (normal.includes(t)) { tipo = t; break; }
+            }
+            await sock.sendMessage(jid, { text: "📚 Preparando tu documento. Puede tardar un momento..." });
+            const doc = await generarDocumentoAcademico(tipo, texto.slice(0, 600));
+            if (sesion.cancelado) return true;
+            const wordPedido = /\b(word|docx)\b/.test(normal);
+            const pdfPedido = /\bpdf\b/.test(normal);
+            const pptxPedido = /\b(powerpoint|pptx)\b/.test(normal);
+            let word = null, pdf = null, pptx = null;
+            try {
+                if (wordPedido || pdfPedido) {
+                    word = await crearDocumentoWord(doc, TMP);
+                    if (wordPedido && !sesion.cancelado) await sock.sendMessage(jid, { document: { url: word.filePath }, mimetype: word.mimetype, fileName: word.fileName });
+                    if (pdfPedido) {
+                        try {
+                            pdf = await crearPdfDesdeWord(word, TMP);
+                            if (!sesion.cancelado) await sock.sendMessage(jid, { document: { url: pdf.filePath }, mimetype: pdf.mimetype, fileName: pdf.fileName });
+                        } catch (e) {
+                            console.error("Error creando PDF:", e.message);
+                            if (!sesion.cancelado) await sock.sendMessage(jid, { text: "No pude convertir a PDF. Revisa LibreOffice en Linux Mint." });
+                        }
+                    }
+                }
+                if (pptxPedido) {
+                    pptx = await crearDocumentoPptx(doc, TMP);
+                    if (!sesion.cancelado) await sock.sendMessage(jid, { document: { url: pptx.filePath }, mimetype: pptx.mimetype, fileName: pptx.fileName });
+                }
+            } finally {
+                for (const archivo of [word, pdf, pptx]) {
+                    if (archivo?.filePath) try { fs.unlinkSync(archivo.filePath); } catch {}
+                    if (archivo?.cleanupDir) try { fs.rmSync(archivo.cleanupDir, { recursive: true, force: true }); } catch {}
+                }
+            }
+            sesion.historial = [];
+        } else {
+            const contexto = sesion.historial.map(x => x.rol + ": " + x.texto).join("\n");
+            const pregunta = contexto ? "Conversación anterior:\n" + contexto + "\nUsuario: " + texto : texto;
+            const respuesta = await responderPreguntaIa("Ayuda de comandos del bot (si corresponde):\n" + GUIA_COMANDOS + "\n\n" + pregunta);
+            if (sesion.cancelado) return true;
+            await enviarTextoLargo(sock, jid, respuesta);
+            sesion.historial.push({ rol: "Usuario", texto: texto.slice(0, 600) });
+            sesion.historial.push({ rol: "Asistente", texto: respuesta.slice(0, 1000) });
+            sesion.historial = sesion.historial.slice(-8);
+        }
+    } catch (err) {
+        console.error("Error conversacion natural:", obtenerDetalleErrorIa(err));
+        if (!sesion.cancelado) await sock.sendMessage(jid, { text: crearMensajeErrorIa(err) });
+    } finally {
+        sesion.ocupado = false;
+    }
+    return true;
 }
 
 // ─── Obtener info de video con yt-dlp ─────────────────────────────────────────
