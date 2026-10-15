@@ -9,6 +9,7 @@ const {
 const pino     = require("pino");
 const qrcode   = require("qrcode-terminal");
 const ytSearch = require("yt-search");
+const { buscarVideosLista } = require("./lib/youtube-lista-search");
 const fs       = require("fs");
 const path     = require("path");
 const http     = require("http");
@@ -1611,37 +1612,42 @@ async function buscarMejor(sock, jid, query) {
 // ─── Mostrar lista de 8 resultados ───────────────────────────────────────────
 async function mostrarLista(sock, jid, query) {
     try {
-        await sock.sendMessage(jid, { text: `🔍 Buscando opciones para: *${query}*...` });
-        const { videos } = await ytSearch(query);
-        const validos = (videos || []).filter(v => v.seconds > 0 && v.seconds <= 600).slice(0, 8);
+        await sock.sendMessage(jid, { text: "🔎 Buscando videos relacionados con *" + query + "*..." });
+        const validos = await buscarVideosLista(query, ytSearch);
 
         if (!validos.length) {
-            await sock.sendMessage(jid, { text: "❌ No encontré resultados menores de 10 min." });
+            await sock.sendMessage(jid, {
+                text: "❌ No encontré videos que coincidan suficientemente con *" + query +
+                    "*. Prueba una búsqueda más específica: *!lista Ibai visitando Perú*."
+            });
             return;
         }
-
         for (let i = 0; i < validos.length; i++) {
             const v = validos[i];
-            const caption = `*${i + 1}.* ${v.title}\n👤 ${v.author.name}  ⏱ ${v.timestamp}`;
+            const autor = v.author?.name || "Canal desconocido";
+            const caption = "*" + (i + 1) + ".* " + v.title +
+                "\n👤 " + autor + "  ⏱ " + (v.timestamp || Math.round(v.seconds / 60) + " min");
             try {
-                const thumbBuffer = await descargarImagen(v.thumbnail);
-                await sock.sendMessage(jid, { image: thumbBuffer, caption });
+                const thumbBuffer = v.thumbnail ? await descargarImagen(v.thumbnail) : null;
+                if (thumbBuffer) await sock.sendMessage(jid, { image: thumbBuffer, caption });
+                else await sock.sendMessage(jid, { text: caption });
             } catch {
                 await sock.sendMessage(jid, { text: caption });
             }
-            await esperar(400);
+            await esperar(250);
         }
 
         await sock.sendMessage(jid, {
-            text: `↩️ Responde con el *número* (1-${validos.length}) para elegir.\n_(Expira en 2 minutos)_`
+            text: "✅ Encontré *" + validos.length + "* videos relacionados con tu búsqueda." +
+                "\n↩️ Responde con el *número* (1-" + validos.length + ") para elegir." +
+                "\n_(Expira en 2 minutos)_"
         });
 
         sesiones.set(jid, { tipo: "lista", datos: validos });
         setTimeout(() => { if (sesiones.has(jid)) sesiones.delete(jid); }, 120_000);
-
     } catch (err) {
         console.error("Error mostrarLista:", err.message);
-        await sock.sendMessage(jid, { text: "❌ Error al buscar. Intenta de nuevo." });
+        await sock.sendMessage(jid, { text: "❌ Error al buscar videos. Intenta nuevamente." });
     }
 }
 
