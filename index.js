@@ -18,6 +18,7 @@ const { spawn } = require("child_process");
 const { randomUUID } = require("crypto");
 const { argumentosVideoWhatsapp } = require("./lib/video-format");
 const { enviarVideoConAlternativa } = require("./lib/video-send");
+const { clasificarPublicacion, guardarVideoTikTok } = require("./lib/tiktok-download");
 const { crearEstadoPerfil } = require("./lib/profile-uptime");
 const { consultarCroma, formatearCroma, imagenCroma } = require("./lib/croma-vehicular");
 const { normalizarPlaca, crearMensajeSunarpManual, consultarVehiculoApi, formatearRespuestaVehicular } = require("./lib/consulta-vehicular");
@@ -1489,7 +1490,7 @@ function esErrorFotoTiktok(errorMsg, url) {
 
 function infoDesdeTiktokApi(data, url) {
     const imagenes = Array.isArray(data.images) ? data.images.filter(Boolean) : [];
-    const esFoto = imagenes.length > 0 || (!data.duration && !!data.cover);
+    const esFoto = imagenes.length > 0;
     return {
         url,
         title: data.title || "TikTok",
@@ -1556,6 +1557,13 @@ async function obtenerInfoVideo(url) {
     } catch (err) {
         if (isTiktok && esErrorFotoTiktok(err.message, url)) {
             return obtenerInfoTiktokFoto(url);
+        }
+        if (isTiktok) {
+            try {
+                const data = await consultarTiktokApi(url);
+                const post = clasificarPublicacion(data);
+                if (post.tipo !== "desconocido") return infoDesdeTiktokApi(data, url);
+            } catch (e) { console.warn("Consulta alternativa TikTok:", e.message); }
         }
         throw err;
     }
@@ -1807,7 +1815,17 @@ async function descargarVideo(sock, jid, url, title) {
     } catch (err) {
         console.error("Error descargarVideo:", err.message);
         if (esUrlTiktok(url)) {
-            await descargarCarruselImagenes(sock, jid, url, title);
+            try {
+                const extra = `${base}_fallback.mp4`;
+                await sock.sendMessage(jid, { text: "⏳ El método principal falló. Intentando otra fuente para el MP4 de TikTok..." });
+                await guardarVideoTikTok(url, extra, consultarTiktokApi);
+                await runProceso(FFMPEG, argumentosVideoWhatsapp(extra, archivo), 10 * 60_000);
+                const envio = await enviarVideoConAlternativa(sock, jid, archivo, title);
+                await sock.sendMessage(jid, { text: `✅ *${title}*\n📦 ${envio.tamano} MB` });
+            } catch (otro) {
+                console.error("TikTok fallback:", otro.message);
+                await sock.sendMessage(jid, { text: "❌ No pude descargar este video de TikTok. Puede estar privado, restringido o TikTok está bloqueando la descarga. Prueba actualizar yt-dlp y usa un enlace público." });
+            }
         } else {
             await sock.sendMessage(jid, { text: "❌ No pude preparar un video reproducible. Revisa que ffmpeg y yt-dlp estén instalados y actualizados." });
         }
