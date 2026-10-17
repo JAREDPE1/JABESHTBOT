@@ -14,6 +14,8 @@ const startMenuText = `Hola, soy *[JABESHT - BOT]*
 --UTILIDADES--
 - *!ia <pregunta>* -> responder con inteligencia artificial
 - *Fotos/PDF* -> envía y pregunta directamente (Gemini)
+- *Audio IA* -> envía una nota de voz (requiere instalar herramientas locales)
+- *!quitarfondo* -> responde a una foto y elimina su fondo con rembg
 - *!buscar <pregunta>* -> buscar en la web si está habilitada
 - *!reconocer* -> responde a un audio de música
 - *recuerda que ...* / *qué recuerdas de mí* / *olvida todo* -> memoria privada
@@ -69,6 +71,8 @@ const botMenuText = `*[JABESHT - BOT]*
 --UTILIDADES--
 - *!ia <pregunta>* -> responder con inteligencia artificial
 - *Fotos/PDF* -> envía y pregunta directamente (Gemini)
+- *Audio IA* -> envía una nota de voz (requiere instalar herramientas locales)
+- *!quitarfondo* -> responde a una foto y elimina su fondo con rembg
 - *!buscar <pregunta>* -> buscar en la web si está habilitada
 - *!reconocer* -> responde a un audio de música
 - *recuerda que ...* / *qué recuerdas de mí* / *olvida todo* -> memoria privada
