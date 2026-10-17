@@ -110,6 +110,8 @@ function ytdlpDisponible() {
 const sesiones = new Map();
 const conversacionesIa = new Map();
 const { buscarMediaWhatsApp, analizarMediaGemini } = require("./lib/ai-media-understanding");
+const { enabled: mediaEnabled, isBackgroundRequest, voiceNote, checkVoiceMedia, checkImageMedia, getImageQuotedOrDirect, createBusyGate, transcribeVoice, speakSpanish, removeBackground } = require("./lib/local-media-tools");
+const mediaBusyGate = createBusyGate();
 const { buscaWeb, consultarWeb } = require("./lib/web-grounding");
 const { crearMemoria, detectarMemoria } = require("./lib/ai-memory");
 const { reconocerMusica } = require("./lib/music-recognition");
@@ -348,8 +350,91 @@ async function startBot() {
         const text = rawText.toLowerCase();
 
         const mediaEntrada = buscarMediaWhatsApp(msg, ["image", "pdf"]);
-        if (!text && !mediaEntrada) return;
+        const notaVoz = voiceNote(msg);
+        if (!text && !mediaEntrada && !notaVoz) return;
         console.log(`📩 [${jid.split("@")[0]}]: ${text}`);
+
+        // Conversación por audio, sin comandos. Desactivada por defecto hasta
+        // instalar los modelos locales; no interfiere con los demás comandos.
+        if (notaVoz && mediaEnabled(process.env.VOICE_AI_ENABLED) &&
+            (!jid.endsWith("@g.us") || iaActivaEnGrupo(botConfig, jid)) && !sesiones.has(jid)) {
+            await indicadorEscritura.ejecutar(sock, jid, async () => {
+                try {
+                    await mediaBusyGate.run(async () => {
+                        checkVoiceMedia(notaVoz);
+                        const buffer = await downloadMediaMessage(msg, "buffer", {}, {
+                            logger: pino({ level: "silent" }), reuploadRequest: sock.updateMediaMessage,
+                        });
+                        checkVoiceMedia(notaVoz, buffer.length);
+                        if (!hasAiConfig()) {
+                            await sock.sendMessage(jid, { text: "Para contestar con IA configura GEMINI_API_KEY y AI_PROVIDER=gemini." });
+                            return;
+                        }
+                        const pregunta = await transcribeVoice(buffer, { tmp: TMP });
+                        const respuesta = await responderPreguntaIa(pregunta);
+                        if (mediaEnabled(process.env.VOICE_REPLY_AUDIO_ENABLED || "true")) {
+                            try {
+                                const audio = await speakSpanish(respuesta, { tmp: TMP });
+                                await sock.sendMessage(jid, { audio, mimetype: "audio/ogg; codecs=opus", ptt: true });
+                            } catch (errorVoz) {
+                                console.error("Audio TTS:", errorVoz.message);
+                                await enviarTextoLargo(sock, jid, respuesta);
+                            }
+                        } else {
+                            await enviarTextoLargo(sock, jid, respuesta);
+                        }
+                    });
+                } catch (err) {
+                    console.error("IA por voz:", err.message);
+                    await sock.sendMessage(jid, { text: err.message === "MEDIA_BUSY" ?
+                        "⏳ Estoy procesando otro archivo; intenta otra vez en un momento." :
+                        "No pude comprender ese audio. Usa una nota de voz menor de 90 segundos (máximo 6 MB) y revisa las herramientas locales." });
+                }
+            });
+            return;
+        }
+
+        // Quitar fondo: acepta foto adjunta con frase natural o foto citada.
+        // El comando !quitarfondo nunca pasa por la IA normal ni por los stickers.
+        if (isBackgroundRequest(rawText)) {
+            const permitido = !jid.endsWith("@g.us") || iaActivaEnGrupo(botConfig, jid) || /^!(quitarfondo|sinfondo)/i.test(rawText);
+            if (!permitido) return;
+            const foto = getImageQuotedOrDirect(msg);
+            if (!foto) {
+                await sock.sendMessage(jid, { text: "🖼️ Para quitar el fondo envía una foto con el texto *quítale el fondo*, o responde a una foto con *!quitarfondo*." });
+                return;
+            }
+            if (!mediaEnabled(process.env.REMOVE_BG_ENABLED)) {
+                await sock.sendMessage(jid, { text: "La eliminación local de fondo está desactivada. Instala rembg y configura REMOVE_BG_ENABLED=true en .env." });
+                return;
+            }
+            await indicadorEscritura.ejecutar(sock, jid, async () => {
+                try {
+                    await mediaBusyGate.run(async () => {
+                        const imagen = foto.message.imageMessage;
+                        const mime = imagen.mimetype || "image/jpeg";
+                        checkImageMedia(imagen);
+                        const buffer = await downloadMediaMessage(foto, "buffer", {}, {
+                            logger: pino({ level: "silent" }), reuploadRequest: sock.updateMediaMessage,
+                        });
+                        checkImageMedia(imagen, buffer.length);
+                        const resultado = await removeBackground(buffer, mime, { tmp: TMP });
+                        await sock.sendMessage(jid, {
+                            document: resultado,
+                            mimetype: "image/png",
+                            fileName: "imagen-sin-fondo.png",
+                            caption: "✅ Fondo eliminado. PNG transparente sin perder calidad.",
+                        });
+                    });
+                } catch (err) {
+                    console.error("Quitar fondo:", err.message);
+                    await sock.sendMessage(jid, { text: err.message === "MEDIA_BUSY" ?
+                        "⏳ Estoy procesando otro archivo. Inténtalo en un momento." :
+                        "No pude quitar el fondo. Envíame JPG, PNG o WebP de hasta 8 MB y revisa que rembg esté instalado." });
+                }
+            });
+            return;
+        }
 
         const iaPermitida = !jid.endsWith("@g.us") || iaActivaEnGrupo(botConfig, jid);
         const userKey = jid.endsWith("@g.us") ? jid + ":" + (msg.key.participant || "") : jid;

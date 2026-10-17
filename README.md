@@ -302,3 +302,59 @@ ffmpeg -version
 Si el bot pide QR otra vez, revisa que `AUTH_DIR` no se haya borrado.
 
 Si WhatsApp se desconecta mucho, usa un VPS estable y no un servicio que duerme por inactividad.
+
+
+## Nuevas funciones locales: voz y fondo transparente (Linux Mint)
+
+Estas funciones están apagadas inicialmente para evitar descargar modelos o saturar un equipo
+sin recursos suficientes. **No se necesita una API de pago** para convertir voz a texto ni
+para quitar fondos. La respuesta inteligente a la pregunta transcrita usa la API de IA ya
+configurada (Gemini/OpenAI) y está sujeta a su cuota.
+
+### Instalación
+
+```bash
+cd ~/JABESHTBOT
+sudo apt update
+sudo apt install -y python3-venv python3-pip ffmpeg espeak-ng libgl1
+python3 -m venv .venv-media
+.venv-media/bin/pip install -r requirements-media.txt
+.venv-media/bin/python -c "import faster_whisper; import rembg; print('OK')"
+```
+
+En `.env` agrega:
+
+```dotenv
+VOICE_AI_ENABLED=true
+VOICE_REPLY_AUDIO_ENABLED=true
+REMOVE_BG_ENABLED=true
+WHISPER_MODEL=tiny
+```
+
+Reinicia con `pm2 restart jabesht-bot --update-env`.
+
+### Uso
+
+- Envía una **nota de voz** (PTT) de máximo **90 segundos / 6 MB**: el bot la
+  transcribe con faster-whisper en tu equipo, responde con tu proveedor IA y
+  transforma el texto en un audio en español usando espeak-ng y FFmpeg/Opus.
+  Si falla la síntesis, intenta responder con texto. La voz es sintética, no
+  natural como los modelos de voz de pago.
+- Responde a una fotografía con **!quitarfondo**, o envía una foto con la leyenda
+  **quítale el fondo**. Obtendrás un **PNG transparente como documento**.
+  Tamaño máximo de imagen: **8 MB**. Utiliza el modelo local ligero `u2netp`.
+- En grupos, las notas de voz se procesan solo cuando la conversación IA está
+  activada con `!activaria`. El comando explícito `!quitarfondo` funciona
+  aunque la IA del grupo esté apagada.
+- Solo se procesa un archivo local a la vez; si alguien envía otro en ese momento,
+  se le invita a intentarlo más tarde.
+
+### Limitaciones y privacidad
+
+Los audios y fotos se procesan en archivos temporales locales y se eliminan tras
+cada operación. La transcripción, después de generarse, se envía al proveedor IA
+configurado. La primera ejecución descargará el modelo de Whisper y el modelo
+de rembg (necesita Internet y espacio en disco); las siguientes usan caché.
+Ambos modelos pueden consumir bastante RAM/CPU, especialmente en computadoras
+antiguas. Es recomendable probarlo primero en chats privados. No se garantiza
+que los modelos locales estén disponibles sin instalación adicional en VPS.
