@@ -1,0 +1,5 @@
+# Modelos gratuitos ejecutados en Linux Mint (no se usan claves de pago).
+# faster-whisper descargará el modelo en el primer uso.
+faster-whisper>=1.1,<2
+# rembg CLI y ONNX Runtime: para quitar fondos localmente.
+rembg[cpu,cli]>=2.0.65,<3
