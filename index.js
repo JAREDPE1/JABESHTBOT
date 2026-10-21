@@ -19,6 +19,7 @@ const { randomUUID } = require("crypto");
 const { argumentosVideoWhatsapp } = require("./lib/video-format");
 const { enviarVideoConAlternativa } = require("./lib/video-send");
 const { crearEstadoPerfil } = require("./lib/profile-uptime");
+const { interpretarComandoGrupo, administrarGrupo } = require("./lib/group-member-requests");
 const { consultarCroma, formatearCroma, imagenCroma } = require("./lib/croma-vehicular");
 const { normalizarPlaca, crearMensajeSunarpManual, consultarVehiculoApi, formatearRespuestaVehicular } = require("./lib/consulta-vehicular");
 const { resolverCanalYoutube, obtenerVideosYoutube, procesarVideosYoutube } = require("./lib/youtube-monitor");
@@ -350,6 +351,18 @@ async function startBot() {
         const mediaEntrada = buscarMediaWhatsApp(msg, ["image", "pdf"]);
         if (!text && !mediaEntrada) return;
         console.log(`📩 [${jid.split("@")[0]}]: ${text}`);
+
+        const comandoMiembros = interpretarComandoGrupo(rawText);
+        if (comandoMiembros) {
+            try {
+                const respuesta = await administrarGrupo(sock, jid, msg, comandoMiembros);
+                await sock.sendMessage(jid, { text: respuesta });
+            } catch (err) {
+                console.error("Comandos de miembros:", err.message);
+                await sock.sendMessage(jid, { text: "❌ No pude gestionar la solicitud. Revisa que el bot sea administrador y esté conectado." });
+            }
+            return;
+        }
 
         const iaPermitida = !jid.endsWith("@g.us") || iaActivaEnGrupo(botConfig, jid);
         const userKey = jid.endsWith("@g.us") ? jid + ":" + (msg.key.participant || "") : jid;
