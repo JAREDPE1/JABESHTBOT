@@ -597,7 +597,7 @@ async function startBot() {
                         const nombres = datos.owners.slice(0, 5).map(o => typeof o === "string" ? o : o?.name || o?.full_name).filter(Boolean);
                         if (nombres.length) respuesta += "\\n👤 Titular(es): " + nombres.map(n => String(n).replace(/[\\r\\n*_~]/g, " ").slice(0, 150)).join(", ");
                     }
-                    const imagen = privado ? imagenCroma(datos) : null;
+                    const imagen = imagenCroma(datos);
                     if (imagen) {
                         try {
                             await sock.sendMessage(jid, { image: { url: imagen }, caption: respuesta });
