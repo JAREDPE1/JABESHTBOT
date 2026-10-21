@@ -1,0 +1,7 @@
+const test = require("node:test"); const assert = require("node:assert/strict");
+const { administrarGrupo, interpretarComandoGrupo } = require("../lib/group-member-requests");
+const group="test@g.us"; const user="51933333333@s.whatsapp.net"; const bot="51911111111@s.whatsapp.net"; const target="51944444444@s.whatsapp.net";
+function mock(){ const calls=[]; return {calls,user:{id:bot},groupMetadata:async()=>({participants:[{id:bot,admin:"admin"},{id:user},{id:target}]}),groupParticipantsUpdate:async(g,ids,action)=>{calls.push({g,ids,action}); return [{status:200}];}};}
+test("integrante no admin puede usar quitar directamente",async()=>{const sock=mock();const command=interpretarComandoGrupo("!quitar +51944444444");assert.equal(await administrarGrupo(sock,group,{key:{participant:user}},command),"✅");assert.deepEqual(sock.calls,[{g:group,ids:[target],action:"remove"}]);});
+test("no permite expulsar al bot",async()=>{const sock=mock();const command=interpretarComandoGrupo("!quitar +51911111111");assert.match(await administrarGrupo(sock,group,{key:{participant:user}},command),/administradores|protegida/);assert.equal(sock.calls.length,0);});
+test("no existen comandos de aprobación",()=>{assert.equal(interpretarComandoGrupo("!aprobar 123456"),null);assert.equal(interpretarComandoGrupo("!rechazar 123456"),null);});
