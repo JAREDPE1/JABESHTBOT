@@ -21,9 +21,8 @@ const startMenuText = `Hola, soy *[JABESHT - BOT]*
 - *!activaria* -> habilitar IA natural en el grupo (cualquier integrante)
 - *!desactivaria* -> deshabilitar IA natural en el grupo (cualquier integrante)
 - *!estadoia* -> consultar estado de IA natural en este grupo
-- *!añadir +51987654321* -> enviar invitación directa (el destinatario decide entrar)
-- *!quitar @persona* -> solicitar retirar integrante
-- *!aprobar ID* / *!rechazar ID* -> confirmar solicitud (administradores)
+- *!añadir +51987654321* -> añadir número directamente (bot admin)
+- *!quitar @persona* -> retirar integrante directamente (bot admin)
 - *!monografia <tema>* -> generar monografia y Word
 - *!monografia-pptx <tema>* -> generar monografia y PowerPoint
 - *!ensayo <tema>* -> generar ensayo y Word
@@ -79,9 +78,8 @@ const botMenuText = `*[JABESHT - BOT]*
 - *!activaria* -> habilitar IA natural en el grupo (cualquier integrante)
 - *!desactivaria* -> deshabilitar IA natural en el grupo (cualquier integrante)
 - *!estadoia* -> consultar estado de IA natural en este grupo
-- *!añadir +51987654321* -> enviar invitación directa (el destinatario decide entrar)
-- *!quitar @persona* -> solicitar retirar integrante
-- *!aprobar ID* / *!rechazar ID* -> confirmar solicitud (administradores)
+- *!añadir +51987654321* -> añadir número directamente (bot admin)
+- *!quitar @persona* -> retirar integrante directamente (bot admin)
 - *!monografia <tema>* -> generar monografia y Word
 - *!monografia-pptx <tema>* -> generar monografia y PowerPoint
 - *!ensayo <tema>* -> generar ensayo y Word
