@@ -26,18 +26,18 @@ test("cuenta grupos y muestra sus nombres en privado", async () => {
     const r = await consultarGruposCreador(sock, key(OWNER + "@s.whatsapp.net"), OWNER);
     assert.deepEqual(r, { estado: "ok", cantidad: 2, nombres: ["Amigos", "Familia"] });
     assert.deepEqual(mensajesReporteGrupos(r), [
-        "🤖 *JABESHTBOT*\\n👥 Estoy en *2* grupos de WhatsApp.\\n\\n📋 *Nombres de los grupos:*\\n1. Amigos\\n2. Familia"
+        "🤖 *JABESHTBOT*\n👥 Estoy en *2* grupos de WhatsApp.\n\n📋 *Nombres de los grupos:*\n1. Amigos\n2. Familia"
     ]);
 });
 
 test("divide una lista larga en mensajes y sanea saltos de línea", () => {
     const nombres = Array.from({ length: 80 }, (_, i) => "Grupo " + i + " grande".repeat(4));
-    nombres[0] = "Hola\\nOtro nombre";
+    nombres[0] = "Hola\nOtro nombre";
     const mensajes = mensajesReporteGrupos({ estado: "ok", nombres }, 320);
     assert.ok(mensajes.length > 1);
     assert.ok(mensajes.every(m => m.length <= 320));
     assert.ok(mensajes.join(" ").includes("Hola Otro nombre"));
-    assert.match(mensajes.at(-1), /79\\. Grupo 79/);
+    assert.match(mensajes.at(-1), /80\\. Grupo 79/);
 });
 test("los terceros no pueden invocar groupFetchAllParticipating", async () => {
     let consultas = 0;
