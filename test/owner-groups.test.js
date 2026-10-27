@@ -1,7 +1,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { esMensajeDelCreador, consultarGruposCreador, mensajeCantidadGrupos } = require("../lib/owner-groups");
+const { esMensajeDelCreador, consultarGruposCreador, mensajesReporteGrupos } = require("../lib/owner-groups");
 const OWNER = "51957211832";
 const key = (remoteJid, rest = {}) => ({ remoteJid, fromMe: false, ...rest });
 
@@ -17,14 +17,27 @@ test("resuelve LID mediante PN verificado y no confunde los dígitos del LID", a
     assert.equal(await esMensajeDelCreador({}, key("51957211832@lid"), OWNER), false);
     assert.equal(await esMensajeDelCreador({}, key("777@lid", { remoteJidAlt: OWNER + "@s.whatsapp.net" }), OWNER), true);
 });
-test("cuenta todos los grupos actuales de la cuenta sin exponer sus nombres", async () => {
+test("cuenta grupos y muestra sus nombres en privado", async () => {
     const sock = { groupFetchAllParticipating: async () => ({
-        "a@g.us": { subject: "Privado" }, "b@g.us": { subject: "Secreto" }
+        "a@g.us": { subject: "Familia" },
+        "b@g.us": { subject: "Amigos" },
+        "individual@s.whatsapp.net": { subject: "No es un grupo" }
     }) };
     const r = await consultarGruposCreador(sock, key(OWNER + "@s.whatsapp.net"), OWNER);
-    assert.deepEqual(r, { estado: "ok", cantidad: 2 });
-    assert.match(mensajeCantidadGrupos(r.cantidad), /2.*grupos/);
-    assert.ok(!mensajeCantidadGrupos(r.cantidad).includes("Secreto"));
+    assert.deepEqual(r, { estado: "ok", cantidad: 2, nombres: ["Amigos", "Familia"] });
+    assert.deepEqual(mensajesReporteGrupos(r), [
+        "🤖 *JABESHTBOT*\\n👥 Estoy en *2* grupos de WhatsApp.\\n\\n📋 *Nombres de los grupos:*\\n1. Amigos\\n2. Familia"
+    ]);
+});
+
+test("divide una lista larga en mensajes y sanea saltos de línea", () => {
+    const nombres = Array.from({ length: 80 }, (_, i) => "Grupo " + i + " grande".repeat(4));
+    nombres[0] = "Hola\\nOtro nombre";
+    const mensajes = mensajesReporteGrupos({ estado: "ok", nombres }, 320);
+    assert.ok(mensajes.length > 1);
+    assert.ok(mensajes.every(m => m.length <= 320));
+    assert.ok(mensajes.join(" ").includes("Hola Otro nombre"));
+    assert.match(mensajes.at(-1), /79\\. Grupo 79/);
 });
 test("los terceros no pueden invocar groupFetchAllParticipating", async () => {
     let consultas = 0;
