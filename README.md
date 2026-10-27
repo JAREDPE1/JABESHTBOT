@@ -167,6 +167,10 @@ npm start
 
 - `!gru`: muestra únicamente al propietario cuántos grupos de WhatsApp tiene actualmente la cuenta vinculada al bot. Se usa en el chat privado con el bot. Muestra el total y una lista numerada con los nombres de los grupos; no muestra sus identificadores ni participantes. El número permitido se define mediante `BOT_OWNER_NUMBER` (por defecto `51957211832`). Si WhatsApp entrega solo un LID sin mapeo verificable al número, el bot rechaza la consulta por seguridad.
 
+## Activar o desactivar IA en el chat privado
+
+Cada persona puede escribir `!desactivaria` para apagar las respuestas naturales en su chat privado, `!activaria` para volver a encenderlas y `!estadoia` para consultar el estado. La preferencia persiste en `bot-config.json` y no afecta a otros usuarios ni a los grupos. Por defecto la IA sigue activada en privados. Los comandos explícitos (`!play`, `!menu`, `!ia`, etc.) continúan funcionando.
+
 ## Comandos Del Bot
 
 - `!menu`

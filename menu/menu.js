@@ -17,10 +17,10 @@ const startMenuText = `Hola, soy *[JABESHT - BOT]*
 - *!buscar <pregunta>* -> buscar en la web si está habilitada
 - *!reconocer* -> responde a un audio de música
 - *recuerda que ...* / *qué recuerdas de mí* / *olvida todo* -> memoria privada
-- *Conversacion IA* -> escribe directamente sin comando; en grupos requiere !activaria
-- *!activaria* -> habilitar IA natural en el grupo (cualquier integrante)
-- *!desactivaria* -> deshabilitar IA natural en el grupo (cualquier integrante)
-- *!estadoia* -> consultar estado de IA natural en este grupo
+- *Conversacion IA* -> escribe directamente sin comando; en grupos requiere !activaria; en privado se puede apagar
+- *!activaria* -> habilitar IA natural en este chat o grupo
+- *!desactivaria* -> deshabilitar IA natural en este chat o grupo
+- *!estadoia* -> consultar estado de IA natural aquí
 - *!añadir +51987654321* -> añadir número directamente (bot admin)
 - *!quitar @persona* -> retirar integrante directamente (bot admin)
 - *!monografia <tema>* -> generar monografia y Word
@@ -74,10 +74,10 @@ const botMenuText = `*[JABESHT - BOT]*
 - *!buscar <pregunta>* -> buscar en la web si está habilitada
 - *!reconocer* -> responde a un audio de música
 - *recuerda que ...* / *qué recuerdas de mí* / *olvida todo* -> memoria privada
-- *Conversacion IA* -> escribe directamente sin comando; en grupos requiere !activaria
-- *!activaria* -> habilitar IA natural en el grupo (cualquier integrante)
-- *!desactivaria* -> deshabilitar IA natural en el grupo (cualquier integrante)
-- *!estadoia* -> consultar estado de IA natural en este grupo
+- *Conversacion IA* -> escribe directamente sin comando; en grupos requiere !activaria; en privado se puede apagar
+- *!activaria* -> habilitar IA natural en este chat o grupo
+- *!desactivaria* -> deshabilitar IA natural en este chat o grupo
+- *!estadoia* -> consultar estado de IA natural aquí
 - *!añadir +51987654321* -> añadir número directamente (bot admin)
 - *!quitar @persona* -> retirar integrante directamente (bot admin)
 - *!monografia <tema>* -> generar monografia y Word
