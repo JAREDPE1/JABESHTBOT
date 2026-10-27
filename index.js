@@ -20,7 +20,7 @@ const { extraerIdBoton, interpretarFormato, enviarBotonesFormato } = require("./
 const { argumentosVideoWhatsapp } = require("./lib/video-format");
 const { enviarVideoConAlternativa } = require("./lib/video-send");
 const { enviarAudioParaGuardar } = require("./lib/audio-file-send");
-const { consultarGruposCreador, mensajeCantidadGrupos } = require("./lib/owner-groups");
+const { consultarGruposCreador, mensajesReporteGrupos } = require("./lib/owner-groups");
 const { iniciarIndicadorDescarga } = require("./lib/download-status");
 const { crearEstadoPerfil } = require("./lib/profile-uptime");
 const { interpretarComandoGrupo, administrarGrupo } = require("./lib/group-member-requests");
@@ -577,7 +577,9 @@ async function startBot() {
                 } else if (resultado.estado === "no_autorizado") {
                     await sock.sendMessage(jid, { text: "🔒 Comando exclusivo del creador." });
                 } else {
-                    await sock.sendMessage(jid, { text: mensajeCantidadGrupos(resultado.cantidad) });
+                    for (const textoReporte of mensajesReporteGrupos(resultado)) {
+                        await sock.sendMessage(jid, { text: textoReporte });
+                    }
                 }
             } catch (error) {
                 console.error("Error !gru:", error.message);
