@@ -19,6 +19,7 @@ const { randomUUID } = require("crypto");
 const { extraerIdBoton, interpretarFormato, enviarBotonesFormato } = require("./lib/formato-botones");
 const { argumentosVideoWhatsapp } = require("./lib/video-format");
 const { enviarVideoConAlternativa } = require("./lib/video-send");
+const { enviarAudioParaGuardar } = require("./lib/audio-file-send");
 const { crearEstadoPerfil } = require("./lib/profile-uptime");
 const { interpretarComandoGrupo, administrarGrupo } = require("./lib/group-member-requests");
 const { consultarCroma, formatearCroma, imagenCroma } = require("./lib/croma-vehicular");
@@ -1699,7 +1700,7 @@ async function preguntarFormato(sock, jid, { url, title, duracion, thumbnail }) 
 
 // ─── Descargar y enviar MP3 con yt-dlp ───────────────────────────────────────
 async function descargarAudio(sock, jid, url, title, duracion) {
-    const base    = path.join(TMP, `audio_${Date.now()}`);
+    const base = path.join(TMP, `audio_${randomUUID()}`);
     const archivo = `${base}.mp3`;
     try {
         const args = [
@@ -1711,39 +1712,50 @@ async function descargarAudio(sock, jid, url, title, duracion) {
         console.log("▶ yt-dlp audio:", args.join(" "));
         await runYtdlp(args, 120_000);
 
-        if (!fs.existsSync(archivo)) {
-            // A veces yt-dlp genera .m4a si no tiene ffmpeg; buscar alternativa
-            const posibles = fs.readdirSync(TMP).filter(f => f.startsWith(path.basename(base)));
-            if (!posibles.length) throw new Error("Archivo de audio no generado");
-            const audioFile = path.join(TMP, posibles[0]);
-            await sock.sendMessage(jid, {
-                audio: fs.readFileSync(audioFile),
-                mimetype: "audio/mp4",
-                ptt: false,
-                fileName: `${title}.m4a`,
-            });
-            fs.unlinkSync(audioFile);
-        } else {
-            await sock.sendMessage(jid, {
-                audio: fs.readFileSync(archivo),
-                mimetype: "audio/mpeg",
-                ptt: false,
-                fileName: `${title}.mp3`,
-            });
-            fs.unlinkSync(archivo);
+        // Si falta FFmpeg, yt-dlp puede haber generado otro formato de audio.
+        const archivos = fs.readdirSync(TMP)
+            .filter(f => f.startsWith(path.basename(base) + "."))
+            .map(f => path.join(TMP, f))
+            .filter(f => fs.statSync(f).isFile());
+        const audioFile = fs.existsSync(archivo) ? archivo :
+            archivos.find(f => [".m4a", ".mp3", ".webm", ".opus", ".ogg"].includes(path.extname(f).toLowerCase()));
+        if (!audioFile) throw new Error("Archivo de audio no generado o formato no compatible");
+
+        const contenido = fs.readFileSync(audioFile);
+        const resultado = await enviarAudioParaGuardar(sock, jid, {
+            contenido,
+            titulo: title,
+            extension: path.extname(audioFile),
+            // Se puede desactivar el envío duplicado para ahorrar datos móviles.
+            adjuntarArchivo: process.env.MUSIC_SEND_DOCUMENT !== "false",
+        });
+        if (resultado.errorArchivo) {
+            console.warn("No se pudo adjuntar el archivo para guardar:", resultado.errorArchivo.message);
         }
 
-        const min = Math.floor(duracion / 60);
-        const seg = String(duracion % 60).padStart(2, "0");
-        await sock.sendMessage(jid, { text: `✅ *${title}*\n⏱ ${min}:${seg}` });
-
+        const segundosTotales = Math.max(0, Number(duracion) || 0);
+        const min = Math.floor(segundosTotales / 60);
+        const seg = String(Math.floor(segundosTotales % 60)).padStart(2, "0");
+        await sock.sendMessage(jid, {
+            text: `✅ *${title}*\n⏱ ${min}:${seg}\n` +
+                (resultado.archivoAdjunto
+                    ? `📥 También envié *${resultado.fileName}* como archivo. Para tenerlo en tu carpeta Música, guárdalo desde WhatsApp en Archivos y muévelo a Música.`
+                    : `🎧 Ya puedes escucharla en WhatsApp. Para guardarla en Música, busca el audio en los archivos multimedia de WhatsApp.`)
+        });
     } catch (err) {
         console.error("Error descargarAudio:", err.message);
-        // Limpiar archivos huérfanos
-        fs.readdirSync(TMP)
-            .filter(f => f.startsWith(path.basename(base)))
-            .forEach(f => { try { fs.unlinkSync(path.join(TMP, f)); } catch {} });
-        await sock.sendMessage(jid, { text: "❌ No pude descargar el audio. Intenta con otro video.\n\n💡 Si el error persiste, asegúrate de tener *ffmpeg* instalado." });
+        await sock.sendMessage(jid, {
+            text: "❌ No pude descargar o enviar el audio. Intenta con otro video.\n\n💡 Comprueba que *ffmpeg* y *yt-dlp* estén instalados."
+        });
+    } finally {
+        // Borrar archivos temporales, tanto si el envío tuvo éxito como si no.
+        try {
+            fs.readdirSync(TMP)
+                .filter(f => f.startsWith(path.basename(base) + "."))
+                .forEach(f => { try { fs.unlinkSync(path.join(TMP, f)); } catch {} });
+        } catch (e) {
+            console.warn("No se pudo limpiar audio temporal:", e.message);
+        }
     }
 }
 
