@@ -514,7 +514,6 @@ async function startBot() {
                 const formato = interpretarFormato(botonId || text, sesion.token);
                 if (formato === "mp3") {
                     sesiones.delete(jid);
-                    await sock.sendMessage(jid, { text: "⏳ Descargando *MP3*..." });
                     await descargarAudio(sock, jid, url, title, duracion);
                 } else if (formato === "mp4") {
                     sesiones.delete(jid);
@@ -1733,15 +1732,7 @@ async function descargarAudio(sock, jid, url, title, duracion) {
             console.warn("No se pudo adjuntar el archivo para guardar:", resultado.errorArchivo.message);
         }
 
-        const segundosTotales = Math.max(0, Number(duracion) || 0);
-        const min = Math.floor(segundosTotales / 60);
-        const seg = String(Math.floor(segundosTotales % 60)).padStart(2, "0");
-        await sock.sendMessage(jid, {
-            text: `✅ *${title}*\n⏱ ${min}:${seg}\n` +
-                (resultado.archivoAdjunto
-                    ? `📥 También envié *${resultado.fileName}* como archivo para guardar en tu celular.\n\n📱 *Android:* descarga el archivo en WhatsApp y, si lo deseas, muévelo a la carpeta Música desde tu administrador de archivos.\n\n🍎 *iPhone:* abre el MP3 adjunto, toca Compartir y elige *Guardar en Archivos* → *En mi iPhone* o *iCloud Drive*. Después podrás abrirlo desde Archivos.\n\nℹ️ En iPhone, guardar en Archivos no añade la canción automáticamente a Apple Music.`
-                    : `🎧 Ya puedes escucharla en WhatsApp. Para recibir también un archivo MP3 fácil de guardar en Android o iPhone, el administrador puede activar *MUSIC_SEND_DOCUMENT=true*.`)
-        });
+
     } catch (err) {
         console.error("Error descargarAudio:", err.message);
         await sock.sendMessage(jid, {
