@@ -165,7 +165,7 @@ npm start
 
 ## Comando privado del creador
 
-- `!gru`: muestra únicamente al propietario cuántos grupos de WhatsApp tiene actualmente la cuenta vinculada al bot. Se usa en el chat privado con el bot. No muestra nombres ni identificadores de grupos. El número permitido se define mediante `BOT_OWNER_NUMBER` (por defecto `51957211832`). Si WhatsApp entrega solo un LID sin mapeo verificable al número, el bot rechaza la consulta por seguridad.
+- `!gru`: muestra únicamente al propietario cuántos grupos de WhatsApp tiene actualmente la cuenta vinculada al bot. Se usa en el chat privado con el bot. Muestra el total y una lista numerada con los nombres de los grupos; no muestra sus identificadores ni participantes. El número permitido se define mediante `BOT_OWNER_NUMBER` (por defecto `51957211832`). Si WhatsApp entrega solo un LID sin mapeo verificable al número, el bot rechaza la consulta por seguridad.
 
 ## Comandos Del Bot
 
