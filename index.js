@@ -20,6 +20,7 @@ const { extraerIdBoton, interpretarFormato, enviarBotonesFormato } = require("./
 const { argumentosVideoWhatsapp } = require("./lib/video-format");
 const { enviarVideoConAlternativa } = require("./lib/video-send");
 const { enviarAudioParaGuardar } = require("./lib/audio-file-send");
+const { iniciarIndicadorDescarga } = require("./lib/download-status");
 const { crearEstadoPerfil } = require("./lib/profile-uptime");
 const { interpretarComandoGrupo, administrarGrupo } = require("./lib/group-member-requests");
 const { consultarCroma, formatearCroma, imagenCroma } = require("./lib/croma-vehicular");
@@ -514,11 +515,14 @@ async function startBot() {
                 const formato = interpretarFormato(botonId || text, sesion.token);
                 if (formato === "mp3") {
                     sesiones.delete(jid);
-                    await descargarAudio(sock, jid, url, title, duracion);
+                    const finalizar = await iniciarIndicadorDescarga(sock, jid, msg.key, "mp3", { ffmpegPath: FFMPEG });
+                    const correcto = await descargarAudio(sock, jid, url, title, duracion);
+                    await finalizar(correcto);
                 } else if (formato === "mp4") {
                     sesiones.delete(jid);
-                    await sock.sendMessage(jid, { text: "⏳ Descargando *MP4*..." });
-                    await descargarVideo(sock, jid, url, title);
+                    const finalizar = await iniciarIndicadorDescarga(sock, jid, msg.key, "mp4", { ffmpegPath: FFMPEG });
+                    const correcto = await descargarVideo(sock, jid, url, title);
+                    await finalizar(correcto);
                 } else if (!botonId) {
                     await sock.sendMessage(jid, { text: "Elige 🎵 Audio MP3 o 🎬 Video MP4. También puedes responder 1 o 2." });
                 }
@@ -1680,21 +1684,32 @@ async function preguntarFormato(sock, jid, { url, title, duracion, thumbnail }) 
         if (sesiones.get(jid) === sesion) sesiones.delete(jid);
     }, 120_000);
 
-    try {
-        if (thumbnail) {
-            const thumbBuffer = await descargarImagen(thumbnail);
-            await sock.sendMessage(jid, { image: thumbBuffer, caption: `🎵 *${title}*\n⏱ ${min}:${seg}` });
-        }
-    } catch (error) {
-        console.warn("Miniatura no disponible:", error.message);
+    let thumbnailBuffer = null;
+    if (thumbnail) {
+        try { thumbnailBuffer = await descargarImagen(thumbnail); }
+        catch (error) { console.warn("Miniatura no disponible:", error.message); }
     }
 
     try {
-        await enviarBotonesFormato(sock, jid, { title, duracion, token });
+        await enviarBotonesFormato(sock, jid, { title, duracion, token, thumbnailBuffer });
     } catch (error) {
-        console.warn("Botones no disponibles. Usando menú de texto:", error.message);
+        // Si la tarjeta interactiva falla, solo se envía UN mensaje de respaldo.
+        console.warn("Tarjeta interactiva no disponible:", error.message);
+        if (thumbnailBuffer) {
+            try {
+                await sock.sendMessage(jid, { image: thumbnailBuffer, caption });
+                return;
+            } catch (e) { console.warn("No se pudo enviar miniatura de respaldo:", e.message); }
+        }
         await sock.sendMessage(jid, { text: caption });
     }
+}
+
+function normalizarTituloMusical(titulo) {
+    const limpio = String(titulo || "Canción").replace(/\\s*\\((?:official|video|lyrics|audio)[^)]*\\)/gi, "").trim();
+    const partes = limpio.split(/\\s+-\\s+/);
+    if (partes.length >= 2) return { artista: partes.shift().trim(), titulo: partes.join(" - ").trim() };
+    return { artista: "Artista desconocido", titulo: limpio };
 }
 
 // ─── Descargar y enviar MP3 con yt-dlp ───────────────────────────────────────
@@ -1720,6 +1735,21 @@ async function descargarAudio(sock, jid, url, title, duracion) {
             archivos.find(f => [".m4a", ".mp3", ".webm", ".opus", ".ogg"].includes(path.extname(f).toLowerCase()));
         if (!audioFile) throw new Error("Archivo de audio no generado o formato no compatible");
 
+        if (path.extname(audioFile).toLowerCase() === ".mp3") {
+            // Metadatos ID3: título, artista y álbum para reproductores del móvil.
+            try {
+                const nombre = normalizarTituloMusical(title);
+                const archivoEtiquetado = `${base}_etiquetado.mp3`;
+                await runProceso(FFMPEG, [
+                    "-y", "-i", audioFile, "-map", "0:a:0", "-c:a", "copy",
+                    "-id3v2_version", "3", "-metadata", `title=${nombre.titulo}`,
+                    "-metadata", `artist=${nombre.artista}`,
+                    "-metadata", "album=JABESHTBOT",
+                    archivoEtiquetado
+                ], 60_000);
+                fs.renameSync(archivoEtiquetado, audioFile);
+            } catch (error) { console.warn("No se pudieron grabar etiquetas MP3:", error.message); }
+        }
         const contenido = fs.readFileSync(audioFile);
         const resultado = await enviarAudioParaGuardar(sock, jid, {
             contenido,
@@ -1733,11 +1763,13 @@ async function descargarAudio(sock, jid, url, title, duracion) {
         }
 
 
+        return true;
     } catch (err) {
         console.error("Error descargarAudio:", err.message);
         await sock.sendMessage(jid, {
             text: "❌ No pude descargar o enviar el audio. Intenta con otro video.\n\n💡 Comprueba que *ffmpeg* y *yt-dlp* estén instalados."
         });
+        return false;
     } finally {
         // Borrar archivos temporales, tanto si el envío tuvo éxito como si no.
         try {
@@ -1823,21 +1855,18 @@ async function descargarVideo(sock, jid, url, title) {
         if (!videoFile || !fs.existsSync(videoFile) || !fs.statSync(videoFile).isFile()) {
             throw new Error("No se generó el archivo final de video");
         }
-        await sock.sendMessage(jid, { text: "⏳ Preparando el video para reproducirlo en WhatsApp..." });
         await runProceso(FFMPEG, argumentosVideoWhatsapp(videoFile, archivo), 10 * 60_000);
         const envio = await enviarVideoConAlternativa(sock, jid, archivo, title);
-        if (envio.modo !== "demasiado_grande") {
-            await sock.sendMessage(jid, {
-                text: `✅ *${title}*\n📦 ${envio.tamano} MB\n📎 Formato: ${envio.modo === "documento" ? "Archivo MP4" : "Video normal"}`,
-            });
-        }
+        return envio.modo !== "demasiado_grande";
 
     } catch (err) {
         console.error("Error descargarVideo:", err.message);
         if (esUrlTiktok(url)) {
             await descargarCarruselImagenes(sock, jid, url, title);
+            return true;
         } else {
             await sock.sendMessage(jid, { text: "❌ No pude preparar un video reproducible. Revisa que ffmpeg y yt-dlp estén instalados y actualizados." });
+            return false;
         }
     } finally {
         limpiarArchivosGenerados(base);
