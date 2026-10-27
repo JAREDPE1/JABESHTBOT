@@ -515,12 +515,12 @@ async function startBot() {
                 const formato = interpretarFormato(botonId || text, sesion.token);
                 if (formato === "mp3") {
                     sesiones.delete(jid);
-                    const finalizar = await iniciarIndicadorDescarga(sock, jid, msg.key, "mp3");
+                    const finalizar = await iniciarIndicadorDescarga(sock, jid, msg.key, "mp3", { ffmpegPath: FFMPEG });
                     const correcto = await descargarAudio(sock, jid, url, title, duracion);
                     await finalizar(correcto);
                 } else if (formato === "mp4") {
                     sesiones.delete(jid);
-                    const finalizar = await iniciarIndicadorDescarga(sock, jid, msg.key, "mp4");
+                    const finalizar = await iniciarIndicadorDescarga(sock, jid, msg.key, "mp4", { ffmpegPath: FFMPEG });
                     const correcto = await descargarVideo(sock, jid, url, title);
                     await finalizar(correcto);
                 } else if (!botonId) {
