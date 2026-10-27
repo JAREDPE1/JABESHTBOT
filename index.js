@@ -16,6 +16,7 @@ const http     = require("http");
 const axios    = require("axios");
 const { spawn } = require("child_process");
 const { randomUUID } = require("crypto");
+const { extraerIdBoton, interpretarFormato, enviarBotonesFormato } = require("./lib/formato-botones");
 const { argumentosVideoWhatsapp } = require("./lib/video-format");
 const { enviarVideoConAlternativa } = require("./lib/video-send");
 const { crearEstadoPerfil } = require("./lib/profile-uptime");
@@ -347,9 +348,10 @@ async function startBot() {
             msg.message.videoMessage?.caption || ""
         ).trim();
         const text = rawText.toLowerCase();
+        const botonId = extraerIdBoton(msg.message);
 
         const mediaEntrada = buscarMediaWhatsApp(msg, ["image", "pdf"]);
-        if (!text && !mediaEntrada) return;
+        if (!text && !mediaEntrada && !botonId) return;
         console.log(`📩 [${jid.split("@")[0]}]: ${text}`);
 
         const comandoMiembros = interpretarComandoGrupo(rawText);
@@ -506,17 +508,19 @@ async function startBot() {
 
             if (sesion.tipo === "formato") {
                 const { url, title, duracion } = sesion.datos;
-                if (text === "1" || text === "mp3" || text === "audio") {
+                // Un botón de otra búsqueda no debe activar esta descarga.
+                if (botonId && ![ `formato_mp3_${sesion.token}`, `formato_mp4_${sesion.token}` ].includes(botonId)) return;
+                const formato = interpretarFormato(botonId || text, sesion.token);
+                if (formato === "mp3") {
                     sesiones.delete(jid);
                     await sock.sendMessage(jid, { text: "⏳ Descargando *MP3*..." });
                     await descargarAudio(sock, jid, url, title, duracion);
-                } else if (text === "2" || text === "mp4" || text === "video") {
+                } else if (formato === "mp4") {
                     sesiones.delete(jid);
                     await sock.sendMessage(jid, { text: "⏳ Descargando *MP4*..." });
                     await descargarVideo(sock, jid, url, title);
-                } else {
-                    sesiones.delete(jid);
-                    await sock.sendMessage(jid, { text: "↩️ Cancelado." });
+                } else if (!botonId) {
+                    await sock.sendMessage(jid, { text: "Elige 🎵 Audio MP3 o 🎬 Video MP4. También puedes responder 1 o 2." });
                 }
                 return;
             }
@@ -1666,23 +1670,31 @@ async function mostrarLista(sock, jid, query) {
 
 // ─── Mostrar miniatura y preguntar formato ────────────────────────────────────
 async function preguntarFormato(sock, jid, { url, title, duracion, thumbnail }) {
-    const min = Math.floor(duracion / 60);
-    const seg = String(duracion % 60).padStart(2, "0");
+    const min = Math.floor((Number(duracion) || 0) / 60);
+    const seg = String((Number(duracion) || 0) % 60).padStart(2, "0");
     const caption = `🎵 *${title}*\n⏱ ${min}:${seg}\n\n¿En qué formato?\n*1* — 🎵 MP3 (solo audio)\n*2* — 🎬 MP4 (video)`;
+    const token = randomUUID().slice(0, 12);
+    const sesion = { tipo: "formato", token, datos: { url, title, duracion, thumbnail } };
+    sesiones.set(jid, sesion);
+    setTimeout(() => {
+        if (sesiones.get(jid) === sesion) sesiones.delete(jid);
+    }, 120_000);
 
     try {
-        const thumbBuffer = thumbnail ? await descargarImagen(thumbnail) : null;
-        if (thumbBuffer) {
-            await sock.sendMessage(jid, { image: thumbBuffer, caption });
-        } else {
-            await sock.sendMessage(jid, { text: caption });
+        if (thumbnail) {
+            const thumbBuffer = await descargarImagen(thumbnail);
+            await sock.sendMessage(jid, { image: thumbBuffer, caption: `🎵 *${title}*\n⏱ ${min}:${seg}` });
         }
-    } catch {
-        await sock.sendMessage(jid, { text: caption });
+    } catch (error) {
+        console.warn("Miniatura no disponible:", error.message);
     }
 
-    sesiones.set(jid, { tipo: "formato", datos: { url, title, duracion, thumbnail } });
-    setTimeout(() => { if (sesiones.has(jid)) sesiones.delete(jid); }, 120_000);
+    try {
+        await enviarBotonesFormato(sock, jid, { title, duracion, token });
+    } catch (error) {
+        console.warn("Botones no disponibles. Usando menú de texto:", error.message);
+        await sock.sendMessage(jid, { text: caption });
+    }
 }
 
 // ─── Descargar y enviar MP3 con yt-dlp ───────────────────────────────────────
