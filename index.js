@@ -20,6 +20,7 @@ const { extraerIdBoton, interpretarFormato, enviarBotonesFormato } = require("./
 const { argumentosVideoWhatsapp } = require("./lib/video-format");
 const { enviarVideoConAlternativa } = require("./lib/video-send");
 const { enviarAudioParaGuardar } = require("./lib/audio-file-send");
+const { consultarGruposCreador, mensajeCantidadGrupos } = require("./lib/owner-groups");
 const { iniciarIndicadorDescarga } = require("./lib/download-status");
 const { crearEstadoPerfil } = require("./lib/profile-uptime");
 const { interpretarComandoGrupo, administrarGrupo } = require("./lib/group-member-requests");
@@ -565,6 +566,23 @@ async function startBot() {
         if (comandoDocumentoIa) {
             const tema = rawText.replace(new RegExp(`^!${comandoDocumentoIa.tipo}(?:-(?:pptx?)|\\s+pptx?)?`, "i"), "").trim();
             await generarDocumentoIaComando(sock, jid, comandoDocumentoIa.tipo, tema, comandoDocumentoIa.formato);
+            return;
+        }
+
+        if (text === "!gru") {
+            try {
+                const resultado = await consultarGruposCreador(sock, msg.key);
+                if (resultado.estado === "solo_privado") {
+                    await sock.sendMessage(jid, { text: "🔒 Este comando solo se usa por privado con el bot." });
+                } else if (resultado.estado === "no_autorizado") {
+                    await sock.sendMessage(jid, { text: "🔒 Comando exclusivo del creador." });
+                } else {
+                    await sock.sendMessage(jid, { text: mensajeCantidadGrupos(resultado.cantidad) });
+                }
+            } catch (error) {
+                console.error("Error !gru:", error.message);
+                await sock.sendMessage(jid, { text: "❌ No pude consultar los grupos ahora. Intenta de nuevo." });
+            }
             return;
         }
 
