@@ -247,6 +247,20 @@ Para detener avisos, escribe el comando `!desactivar...` correspondiente en el m
 
 La sección Info. del perfil muestra el tiempo conectado y el bot la renueva cada minuto. Al detenerse normalmente intenta borrarla. WhatsApp puede tardar en reflejar los cambios; si se corta la luz o la red, el bot no puede borrar la Info. hasta volver a conectarse. El comando `!estado` calcula días, horas, minutos y segundos al pedirlo.
 
+## Guardar canciones MP3 en Android y iPhone
+
+Con `!play <nombre>` o `!yt <URL>`, el bot ofrece la elección de audio MP3 o video MP4 mediante botones en WhatsApp. Es la misma interfaz para WhatsApp Android y WhatsApp iPhone; la presentación de los botones puede variar según la aplicación. Si no aparecen, responde `1` para MP3 o `2` para MP4.
+
+Al elegir MP3, el bot envía un audio reproducible y, si `MUSIC_SEND_DOCUMENT=true` (predeterminado), también un archivo descargable `.mp3` con el nombre de la canción. El envío duplicado consume más datos móviles. Si falta FFmpeg, podría enviarse un formato de audio diferente al MP3.
+
+- **Android:** descarga el documento adjunto de WhatsApp. Abre tu administrador de archivos, encuentra el MP3 en los documentos recibidos de WhatsApp y usa **Mover** o **Copiar** a la carpeta `Music` del almacenamiento interno.
+- **iPhone:** abre el documento MP3 en el chat, usa **Compartir** (o las opciones del documento), selecciona **Guardar en Archivos** y elige **En mi iPhone** o **iCloud Drive**. Si no aparece `En mi iPhone`, guarda en iCloud Drive o en una ubicación disponible. Abre la app **Archivos** para escucharlo con una aplicación compatible.
+- **Apple Music:** guardar un MP3 en Archivos **no** lo incorpora automáticamente a la biblioteca de Apple Music. Para añadirlo a esa biblioteca se requiere una importación/sincronización aparte desde Mac o PC, cuando corresponda.
+
+Ningún bot de WhatsApp puede obligar al teléfono del receptor a guardar archivos directamente en `Music`, `Fotos` o la biblioteca de Apple Music. El usuario decide dónde se guardan en su dispositivo.
+
+Para desactivar el archivo adicional (enviar solo el audio reproducible), configura `MUSIC_SEND_DOCUMENT=false` en tu `.env`.
+
 ## Sesion De WhatsApp
 
 La sesion se guarda en `AUTH_DIR`.
