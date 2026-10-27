@@ -128,6 +128,7 @@ const { detectarSolicitudImagen, imageGenerationEnabled, crearLimitadorImagenes,
 const permitirImagen = crearLimitadorImagenes(3);
 const { detectarAyudaComando, GUIA_COMANDOS } = require("./lib/bot-command-help");
 const { iaActivaEnGrupo, configurarIaGrupo, cancelarSesionesIaGrupo } = require("./lib/ai-group-controls");
+const { iaActivaEnPrivado, configurarIaPrivado, cancelarSesionIaPrivado } = require("./lib/ai-private-controls");
 let reconectando = false;
 let kickMonitorTimer = null;
 let tiktokMonitorTimer = null;
@@ -369,7 +370,7 @@ async function startBot() {
             return;
         }
 
-        const iaPermitida = !jid.endsWith("@g.us") || iaActivaEnGrupo(botConfig, jid);
+        const iaPermitida = jid.endsWith("@g.us") ? iaActivaEnGrupo(botConfig, jid) : iaActivaEnPrivado(botConfig, jid);
         const userKey = jid.endsWith("@g.us") ? jid + ":" + (msg.key.participant || "") : jid;
         if (text === "!reconocer" && iaPermitida) {
             const media = buscarMediaWhatsApp(msg, ["audio"]);
@@ -462,7 +463,31 @@ async function startBot() {
 
         if (text === "!activaria" || text === "!desactivaria" || text === "!estadoia") {
             if (!jid.endsWith("@g.us")) {
-                await sock.sendMessage(jid, { text: "En privado la IA responde directamente a tus mensajes. Estos comandos se usan en grupos." });
+                if (text === "!estadoia") {
+                    await sock.sendMessage(jid, {
+                        text: iaActivaEnPrivado(botConfig, jid)
+                            ? "🤖 IA natural activada en este chat privado."
+                            : "🔕 IA natural desactivada en este chat. Escribe *!activaria* para encenderla."
+                    });
+                    return;
+                }
+                const activar = text === "!activaria";
+                const anterior = { ...(botConfig.iaConversacionPrivados || {}) };
+                configurarIaPrivado(botConfig, jid, activar);
+                try {
+                    guardarConfig(botConfig);
+                } catch (err) {
+                    botConfig.iaConversacionPrivados = anterior;
+                    console.error("No se pudo guardar IA privada:", err.message);
+                    await sock.sendMessage(jid, { text: "❌ No pude guardar el estado de la IA. Intenta nuevamente." });
+                    return;
+                }
+                if (!activar) cancelarSesionIaPrivado(conversacionesIa, jid);
+                await sock.sendMessage(jid, {
+                    text: activar
+                        ? "✅ IA natural activada en este chat. Ya puedes escribirme sin comandos."
+                        : "🔕 IA natural desactivada en este chat. Los comandos como *!play*, *!menu* y *!ia* siguen disponibles."
+                });
                 return;
             }
             if (text === "!estadoia") {
@@ -961,7 +986,7 @@ async function startBot() {
 
 
 async function procesarConversacionNatural(sock, jid, msg, texto) {
-    if (jid.endsWith("@g.us") && !iaActivaEnGrupo(botConfig, jid)) return false;
+    if (!(jid.endsWith("@g.us") ? iaActivaEnGrupo(botConfig, jid) : iaActivaEnPrivado(botConfig, jid))) return false;
     const clave = jid.endsWith("@g.us") ? jid + ":" + (msg.key.participant || "desconocido") : jid;
     const sesionActual = conversacionesIa.get(clave);
     const activo = sesionActual && sesionActual.expira > Date.now();
