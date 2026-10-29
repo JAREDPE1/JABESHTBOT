@@ -21,6 +21,7 @@ const { argumentosVideoWhatsapp } = require("./lib/video-format");
 const { enviarVideoConAlternativa } = require("./lib/video-send");
 const { enviarAudioParaGuardar } = require("./lib/audio-file-send");
 const { consultarGruposCreador, mensajesReporteGrupos } = require("./lib/owner-groups");
+const { comprobarAcceso, habilitado, iniciarOperacion, leerEstado, mensajeEstado } = require("./lib/remote-maintenance");
 const { iniciarIndicadorDescarga } = require("./lib/download-status");
 const { crearEstadoPerfil } = require("./lib/profile-uptime");
 const { interpretarComandoGrupo, administrarGrupo } = require("./lib/group-member-requests");
@@ -566,6 +567,35 @@ async function startBot() {
         if (comandoDocumentoIa) {
             const tema = rawText.replace(new RegExp(`^!${comandoDocumentoIa.tipo}(?:-(?:pptx?)|\\s+pptx?)?`, "i"), "").trim();
             await generarDocumentoIaComando(sock, jid, comandoDocumentoIa.tipo, tema, comandoDocumentoIa.formato);
+            return;
+        }
+
+        if (["!actualizar", "!reiniciar", "!estadoactualizacion"].includes(text)) {
+            const acceso = await comprobarAcceso(sock, msg.key);
+            if (acceso !== "ok") {
+                await sock.sendMessage(jid, { text: acceso === "solo_privado"
+                    ? "🔒 Este comando administrativo solo funciona en privado."
+                    : "🔒 Comando exclusivo del creador." });
+                return;
+            }
+            if (text === "!estadoactualizacion") {
+                await sock.sendMessage(jid, { text: mensajeEstado(leerEstado()) });
+                return;
+            }
+            if (!habilitado()) {
+                await sock.sendMessage(jid, { text: "🔒 Administración remota desactivada. El creador debe configurar BOT_REMOTE_ADMIN_ENABLED=true en el servidor." });
+                return;
+            }
+            try {
+                const accion = text === "!actualizar" ? "actualizar" : "reiniciar";
+                iniciarOperacion(accion);
+                await sock.sendMessage(jid, { text: accion === "actualizar"
+                    ? "🔄 Revisión de actualización iniciada. Consulta *!estadoactualizacion* para conocer el resultado."
+                    : "♻️ Reinicio solicitado. Consulta *!estadoactualizacion* después de reconectar." });
+            } catch (error) {
+                console.error("Mantenimiento remoto:", error.message);
+                await sock.sendMessage(jid, { text: "❌ No se pudo iniciar el mantenimiento: " + String(error.message || "Error").slice(0, 180) });
+            }
             return;
         }
 
