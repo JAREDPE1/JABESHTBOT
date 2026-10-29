@@ -37,6 +37,8 @@ async function git(args) {
 }
 async function main() {
     if (process.platform !== "linux" || !["actualizar", "reiniciar"].includes(action) || !/^\d{1,6}$/.test(pmId || "")) throw new Error("Argumentos no permitidos");
+    // Dar tiempo al bot a enviar la confirmación a WhatsApp antes de reiniciar.
+    await new Promise(resolve => setTimeout(resolve, 3000));
     status("ejecutando", "Comprobando proceso PM2.");
     if (action === "actualizar") {
         const branch = await git(["branch", "--show-current"]);
@@ -49,8 +51,6 @@ async function main() {
         await run("git", ["fetch", "--no-tags", "origin", "main"]);
         const remote = await git(["rev-parse", "FETCH_HEAD"]);
         if (before === remote) { status("sin_cambios", "Ya tienes la última versión de main."); return; }
-        const ancestor = await git(["merge-base", "--is-ancestor", before, remote]).catch(() => null);
-        // merge-base --is-ancestor no tiene stdout; comprobar código explícitamente en otra ejecución.
         await run("git", ["merge-base", "--is-ancestor", before, remote]);
         await run("git", ["merge", "--ff-only", remote]);
         if (fs.existsSync(path.join(ROOT, "package-lock.json"))) await run("npm", ["ci", "--ignore-scripts", "--no-audit"], 240000);
