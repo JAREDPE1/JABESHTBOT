@@ -167,6 +167,16 @@ npm start
 
 - `!gru`: muestra únicamente al propietario cuántos grupos de WhatsApp tiene actualmente la cuenta vinculada al bot. Se usa en el chat privado con el bot. Muestra el total y una lista numerada con los nombres de los grupos; no muestra sus identificadores ni participantes. El número permitido se define mediante `BOT_OWNER_NUMBER` (por defecto `51957211832`). Si WhatsApp entrega solo un LID sin mapeo verificable al número, el bot rechaza la consulta por seguridad.
 
+## Administración remota desde WhatsApp (Linux Mint + PM2)
+
+Los comandos `!actualizar`, `!reiniciar` y `!estadoactualizacion` son **solo para el creador**, desde chat privado, mediante la misma verificación de identidad que `!gru`. Están **apagados por defecto**. Para habilitarlos, añade `BOT_REMOTE_ADMIN_ENABLED=true` en el `.env` privado del servidor y reinicia una vez PM2. Asegúrate de que `BOT_OWNER_NUMBER` contenga el número del creador con prefijo de país, que el proceso se ejecute con PM2 y que el repositorio local tenga `origin` apuntando a `JAREDPE1/JABESHTBOT`.
+
+- `!actualizar`: un proceso independiente verifica `main`, comprueba que no existan modificaciones locales rastreadas, ejecuta `git fetch origin main`, exige una actualización fast-forward, instala dependencias de Node sin scripts, verifica la sintaxis y reinicia únicamente el proceso PM2 del bot.
+- `!reiniciar`: reinicia únicamente el proceso actual de PM2, sin tocar archivos.
+- `!estadoactualizacion`: muestra el último estado o error guardado en `remote-maintenance-status.json`, sin exponer credenciales ni contraseñas.
+
+Después de un reinicio puede haber un breve intervalo sin respuesta. Si una actualización falla antes de reiniciar, el estado queda como error para consulta. Si falla luego de modificar archivos, puede requerirse recuperar el bot desde Linux Mint. Usa pruebas antes de fusionar código en `main`. No ejecutes el bot como root. El proceso independiente debe tener permisos para utilizar Git, npm y pm2.
+
 ## Comandos Del Bot
 
 - `!menu`
