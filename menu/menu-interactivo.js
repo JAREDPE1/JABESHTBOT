@@ -1,6 +1,5 @@
 "use strict";
 const { randomUUID } = require("node:crypto");
-const { extraerIdBoton } = require("../lib/formato-botones");
 const { obtenerSecciones, obtenerSeccion, textoCategorias, textoSeccion, botMenuText } = require("./menu");
 
 const sesionesMenu = new Map();
