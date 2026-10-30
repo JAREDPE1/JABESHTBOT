@@ -30,7 +30,9 @@ const { normalizarPlaca, crearMensajeSunarpManual, consultarVehiculoApi, formate
 const { resolverCanalYoutube, obtenerVideosYoutube, procesarVideosYoutube } = require("./lib/youtube-monitor");
 require("dotenv").config();
 
-const { startMenuText, botMenuText, menuImagePath, hasMenuImage } = require("./menu/menu");
+const { startMenuText, textoCategorias } = require("./menu/menu");
+const { abrirMenu, abrirMenuTexto, procesarMenu } = require("./menu/menu-interactivo");
+const { esMensajeDelCreador } = require("./lib/owner-groups");
 const {
     getDocumentType,
     hasAiConfig,
@@ -358,6 +360,16 @@ async function startBot() {
         if (!text && !mediaEntrada && !botonId) return;
         console.log(`📩 [${jid.split("@")[0]}]: ${text}`);
 
+        // Abrir un menú nuevo reemplaza una selección de descarga anterior,
+        // evitando que la sesión MP3/MP4 intercepte !menu.
+        if (["!menu", "!ayuda", "!start", "!menutexto"].includes(text)) {
+            sesiones.delete(jid);
+        }
+
+        // El menú se procesa antes de la IA natural y sin interferir con las
+        // sesiones MP3/MP4. Solo consume sus propios IDs de botón.
+        if (await procesarMenu(sock, jid, { texto: rawText, botonId })) return;
+
         const comandoMiembros = interpretarComandoGrupo(rawText);
         if (comandoMiembros) {
             try {
@@ -535,18 +547,20 @@ async function startBot() {
         // ── Comandos ─────────────────────────────────────────────────────────
 
         if (text === "hola" || text === "!start") {
-            const message = hasMenuImage
-                ? { image: fs.readFileSync(menuImagePath), caption: startMenuText }
-                : { text: startMenuText };
-            await sock.sendMessage(jid, message);
+            if (text === "hola") await sock.sendMessage(jid, { text: startMenuText });
+            await abrirMenu(sock, jid, { creador: await esMensajeDelCreador(sock, msg.key) });
             return;
         }
 
         if (text === "!menu" || text === "!ayuda") {
-            const message = hasMenuImage
-                ? { image: fs.readFileSync(menuImagePath), caption: botMenuText }
-                : { text: botMenuText };
-            await sock.sendMessage(jid, message);
+            await abrirMenu(sock, jid, { creador: await esMensajeDelCreador(sock, msg.key) });
+            return;
+        }
+
+        if (text === "!menutexto") {
+            // Alternativa accesible si el cliente de WhatsApp no muestra botones.
+            const creador = await esMensajeDelCreador(sock, msg.key);
+            await abrirMenuTexto(sock, jid, creador);
             return;
         }
 
