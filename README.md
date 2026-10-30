@@ -2,6 +2,12 @@
 
 Bot de WhatsApp hecho con Node.js y Baileys.
 
+## Menú interactivo por categorías
+
+El comando `!menu` (también `!ayuda`) muestra un botón **📚 Ver comandos**. Al tocarlo se abre una lista con secciones: Música y videos, Inteligencia artificial, Word y PowerPoint, Herramientas, Grupos y miembros, Avisos de redes e Información. El creador autorizado puede ver además Administración, con `!gru`, `!actualizar`, `!reiniciar` y `!estadoactualizacion`. El botón **📚 Otras secciones** vuelve al listado.
+
+Los comandos siguen siendo mensajes de texto escritos por el usuario; seleccionar una sección únicamente muestra su explicación, nunca ejecuta operaciones administrativas. La compatibilidad con botones depende del cliente de WhatsApp y Baileys; si no aparecen, escribe `!menutexto` y responde con el número de la categoría. Responde `0` para volver después de consultar una sección. El menú expira después de tres minutos y se puede reabrir con `!menu`.
+
 ## Funciones
 
 - Descargar audio/video desde YouTube.
