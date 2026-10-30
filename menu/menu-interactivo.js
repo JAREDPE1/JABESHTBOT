@@ -38,6 +38,12 @@ async function abrirMenu(sock,jid,{creador=false}={}) {
     }
     return sesion;
 }
+async function abrirMenuTexto(sock,jid,creador=false) {
+    const token=randomUUID().slice(0,12);
+    sesionesMenu.set(jid,{token,creador,etapa:"categorias",expira:Date.now()+TIEMPO_MENU_MS});
+    await sock.sendMessage(jid,{text:textoCategorias({creador})});
+}
+
 async function enviarCategorias(sock,jid,sesion) {
     sesion.etapa="categorias";
     sesion.expira=Date.now()+TIEMPO_MENU_MS;
@@ -108,7 +114,7 @@ async function procesarMenu(sock,jid,{texto="",botonId=""}={}) {
         if(sec){await mostrarSeccion(sock,jid,sesion,sec.id);return true;}
     }
     if(sesion.etapa==="seccion"&&t==="0"){await enviarCategorias(sock,jid,sesion);return true;}
-    if(t && !/^[!.]/.test(t)) sesionesMenu.delete(jid);
+    if(t && !/^\\d+$/.test(t)) sesionesMenu.delete(jid);
     return false;
 }
-module.exports={abrirMenu,procesarMenu,enviarCategorias,mostrarSeccion,botonLista,boton,sesionesMenu};
+module.exports={abrirMenu,abrirMenuTexto,procesarMenu,enviarCategorias,mostrarSeccion,botonLista,boton,sesionesMenu};
