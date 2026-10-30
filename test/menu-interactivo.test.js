@@ -30,7 +30,7 @@ test("menú de respaldo permite navegar por números y volver con 0",async()=>{
 
 test("menú interactivo incluye botón de abrir y rechaza selecciones obsoletas",async()=>{
     const jid="otro@s.whatsapp.net", messages=[];
-    const sock={user:{id:"bot@s.whatsapp.net"},relayMessage:async(jid,msg)=>messages.push(msg),
+    const sock={user:{id:"bot@s.whatsapp.net"},relayMessage:async()=>{throw new Error("No compatible con botones");},
         sendMessage:async(jid,msg)=>messages.push(msg)};
     // No dispone de la dependencia Baileys en este mock; abrirMenu usa
     // el fallback textual sin perder la sesión.
