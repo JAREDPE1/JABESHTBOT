@@ -360,6 +360,12 @@ async function startBot() {
         if (!text && !mediaEntrada && !botonId) return;
         console.log(`📩 [${jid.split("@")[0]}]: ${text}`);
 
+        // Abrir un menú nuevo reemplaza una selección de descarga anterior,
+        // evitando que la sesión MP3/MP4 intercepte !menu.
+        if (["!menu", "!ayuda", "!start", "!menutexto"].includes(text)) {
+            sesiones.delete(jid);
+        }
+
         // El menú se procesa antes de la IA natural y sin interferir con las
         // sesiones MP3/MP4. Solo consume sus propios IDs de botón.
         if (await procesarMenu(sock, jid, { texto: rawText, botonId })) return;
@@ -554,7 +560,7 @@ async function startBot() {
         if (text === "!menutexto") {
             // Alternativa accesible si el cliente de WhatsApp no muestra botones.
             const creador = await esMensajeDelCreador(sock, msg.key);
-            const sesion = await abrirMenuTexto(sock, jid, creador);
+            await abrirMenuTexto(sock, jid, creador);
             return;
         }
 
